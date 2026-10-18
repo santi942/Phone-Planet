@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#02091c">
+    <meta name="description" content="Phone Planet: accesorios para celulares, fundas, cargadores, audífonos y más.">
+    <title>Phone Planet | Tu universo de accesorios</title>
+
+    <link rel="stylesheet" href="CSS/Index.css">
+    <link rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+          <link rel="icon" type="image/x-icon" href="../IMG/ICONO.ico">
+</head>
+<body>
+    <header class="encabezado" id="inicio">
+        <a href="#inicio" class="marca" aria-label="Phone Planet, inicio">
+            <img src="IMG/LOGO.png" alt="Logo de Phone Planet" class="logo-imagen"
+                 onerror="this.onerror=null;this.src='IMG/LOGO.png';">
+            <span class="marca-texto">PHONE<br>PLANET</span>
+        </a>
+
+        <button class="menu-movil" id="menu-movil" type="button"
+                aria-label="Abrir menú" aria-expanded="false">
+            <i class="fa-solid fa-bars"></i>
+        </button>
+
+        <nav class="navegacion" id="navegacion">
+            <a href="#inicio" class="enlace activo"><i class="fa-solid fa-house"></i><span>Inicio</span></a>
+            <a href="#productos" class="enlace"><i class="fa-solid fa-box-open"></i><span>Productos</span></a>
+            <a href="#nosotros" class="enlace"><i class="fa-solid fa-users"></i><span>Nosotros</span></a>
+            <a href="#contacto" class="enlace"><i class="fa-regular fa-comment-dots"></i><span>Contacto</span></a>
+        </nav>
+
+        <form class="busqueda" id="form-busqueda" role="search">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="search" id="buscar-productos" placeholder="Buscar productos..."
+                   aria-label="Buscar productos">
+            <button type="button" id="limpiar-busqueda" class="limpiar-busqueda"
+                    aria-label="Limpiar búsqueda" hidden>&times;</button>
+        </form>
+
+        <button class="icono-carrito" id="abrir-carrito" type="button"
+                aria-label="Abrir carrito de compras">
+            <i class="fa-solid fa-cart-shopping"></i>
+            <span class="contador-carrito" id="contador-carrito">0</span>
+        </button>
+
+        <a href="HTML/LOGIN.html" class="boton-login">
+            <i class="fa-regular fa-user"></i><span>Iniciar sesión</span>
+        </a>
+    </header>
+
+    <main>
+        <section class="portada" aria-labelledby="titulo-portada">
+            <div class="portada-contenido">
+                <p class="etiqueta-portada"><i class="fa-solid fa-satellite"></i> TECNOLOGÍA A OTRO NIVEL</p>
+                <h1 id="titulo-portada">TU UNIVERSO <span>DE ACCESORIOS</span></h1>
+                <p class="descripcion">Lleva tu mundo digital a otra galaxia.</p>
+                <a href="#productos" class="boton-explorar">
+                    <i class="fa-solid fa-rocket"></i>
+                    <span>EXPLORAR PRODUCTOS</span>
+                    <i class="fa-solid fa-chevron-right flecha"></i>
+                </a>
+
+                <div class="beneficios">
+                    <div class="beneficio">
+                        <i class="fa-solid fa-truck-fast"></i>
+                        <span>Envíos a<br>toda Colombia</span>
+                    </div>
+                    <div class="beneficio">
+                        <i class="fa-solid fa-shield-halved"></i>
+                        <span>Compra confiable</span>
+                    </div>
+                    <div class="beneficio">
+                        <i class="fa-solid fa-award"></i>
+                        <span>Accesorios<br>para tu día a día</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="portada-imagen">
+                <img src="IMG/accesorios-portada.png"
+                     alt="Celular, audífonos, cargadores, cable y reloj inteligente"
+                     onerror="this.onerror=null;this.src='IMG/portada-accesorios.png';">
+            </div>
+        </section>
+
+        <section class="categorias seccion" aria-labelledby="titulo-categorias">
+            <div class="titulo-seccion centrado">
+                <span class="icono-titulo"><i class="fa-solid fa-satellite"></i></span>
+                <div>
+                    <h2 id="titulo-categorias">EXPLORA LA <span>GALAXIA</span></h2>
+                    <p>Encuentra todo lo que tu celular necesita</p>
+                </div>
+                <span class="icono-titulo planeta-icono"><i class="fa-solid fa-earth-americas"></i></span>
+            </div>
+
+            <div class="rejilla-categorias">
+                <button class="tarjeta-categoria" type="button" data-categoria="Fundas">
+                    <img src="IMG/categoria-fundas.png" alt="" loading="lazy">
+                    <span class="texto-categoria"><strong>Fundas</strong><small>Protección con estilo</small></span>
+                    <i class="fa-solid fa-chevron-right flecha-categoria"></i>
+                </button>
+                <button class="tarjeta-categoria" type="button" data-categoria="Cargadores">
+                    <img src="IMG/categoria-cargadores.png" alt="" loading="lazy">
+                    <span class="texto-categoria"><strong>Cargadores</strong><small>Energía sin límites</small></span>
+                    <i class="fa-solid fa-chevron-right flecha-categoria"></i>
+                </button>
+                <button class="tarjeta-categoria" type="button" data-categoria="Audífonos">
+                    <img src="IMG/categoria-audifonos.png" alt="" loading="lazy">
+                    <span class="texto-categoria"><strong>Audífonos</strong><small>Sonido de otro planeta</small></span>
+                    <i class="fa-solid fa-chevron-right flecha-categoria"></i>
+                </button>
+                <button class="tarjeta-categoria" type="button" data-categoria="Smartwatches">
+                    <img src="IMG/categoria-smartwatches.png" alt="" loading="lazy">
+                    <span class="texto-categoria"><strong>Smartwatches</strong><small>Mucho más que un reloj</small></span>
+                    <i class="fa-solid fa-chevron-right flecha-categoria"></i>
+                </button>
+                
+            </div>
+        </section>
+
+        <section class="productos seccion" id="productos" aria-labelledby="titulo-productos">
+            <div class="encabezado-productos">
+                <div class="titulo-seccion titulo-izquierda">
+                    <span class="icono-titulo"><i class="fa-solid fa-rocket"></i></span>
+                    <div>
+                        <h2 id="titulo-productos">PRODUCTOS <span>DESTACADOS</span></h2>
+                        <p>Elige tus favoritos y agrégalos al carrito</p>
+                    </div>
+                </div>
+
+                <div class="filtros-productos">
+                    <label class="solo-lectores" for="filtro-categoria">Filtrar por categoría</label>
+                    <select id="filtro-categoria">
+                        <option value="Todos">Todas las categorías</option>
+                        <option value="Fundas">Fundas</option>
+                        <option value="Cargadores">Cargadores</option>
+                        <option value="Audífonos">Audífonos</option>
+                        <option value="Cables">Cables</option>
+                        <option value="Smartwatches">Smartwatches</option>
+                    </select>
+                </div>
+            </div>
+
+            <p class="mensaje-resultados" id="mensaje-resultados" aria-live="polite"></p>
+            <div class="rejilla-productos" id="rejilla-productos"></div>
+        </section>
+
+        <section class="nosotros seccion" id="nosotros">
+            <div class="nosotros-contenido">
+                <span class="etiqueta-portada">BIENVENIDO A PHONE PLANET</span>
+                <h2>Tu tecnología, <span>tu universo.</span></h2>
+                <p>Somos una tienda de accesorios para celulares que busca acompañarte con productos prácticos, modernos y con estilo. Explora el catálogo y encuentra el complemento ideal para tus dispositivos.</p>
+            </div>
+            <div class="nosotros-sello"><i class="fa-solid fa-earth-americas"></i><strong>PHONE<br>PLANET</strong></div>
+        </section>
+    </main>
+
+    <footer class="pie-pagina" id="contacto">
+        <div class="pie-principal">
+            <a href="#inicio" class="marca marca-footer">
+                <img src="IMG/LOGO.jpg" alt="Phone Planet"
+                     class="logo-imagen"
+                     onerror="this.onerror=null;this.src='IMG/LOGO.png';">
+                <span class="marca-texto">PHONE<br>PLANET</span>
+            </a>
+
+            <div class="pie-columna sobre-pie">
+                <h3>Sobre Phone Planet</h3>
+                <p>Accesorios para celulares que llevan tu mundo digital a otra galaxia.</p>
+            </div>
+
+            <div class="pie-columna">
+                <h3>Enlaces rápidos</h3>
+                <a href="#inicio">Inicio</a>
+                <a href="#productos">Productos</a>
+                <a href="#nosotros">Nosotros</a>
+            </div>
+
+            <div class="pie-columna">
+                <h3>Contacto</h3>
+                <p><i class="fa-regular fa-envelope"></i> hola@phoneplanet.com</p>
+                <p><i class="fa-solid fa-location-dot"></i> Colombia</p>
+            </div>
+
+            <div class="pie-columna">
+                <h3>Tu compra</h3>
+                <p><i class="fa-solid fa-truck-fast"></i> Envíos a Colombia</p>
+                <p><i class="fa-solid fa-shield-halved"></i> Atención confiable</p>
+            </div>
+        </div>
+        <div class="pie-inferior">© <span id="anio-actual"></span> Phone Planet. Todos los derechos reservados.</div>
+    </footer>
+
+    <!-- PANEL DEL CARRITO -->
+    <div class="fondo-modal" id="fondo-modal" hidden></div>
+    <aside class="panel-carrito" id="panel-carrito" aria-labelledby="titulo-carrito"
+           aria-hidden="true">
+        <div class="cabecera-carrito">
+            <div>
+                <p class="etiqueta-portada">TU SELECCIÓN</p>
+                <h2 id="titulo-carrito"><i class="fa-solid fa-cart-shopping"></i> Mi carrito</h2>
+            </div>
+            <button type="button" class="cerrar-carrito" id="cerrar-carrito"
+                    aria-label="Cerrar carrito">&times;</button>
+        </div>
+
+        <div class="contenido-carrito" id="lista-carrito"></div>
+        <p class="carrito-vacio" id="carrito-vacio">
+            <i class="fa-solid fa-basket-shopping"></i>
+            <strong>Tu carrito está vacío</strong>
+            <span>Explora la galaxia y agrega tus productos favoritos.</span>
+            <button type="button" class="boton-secundario" id="seguir-comprando">Seguir comprando</button>
+        </p>
+
+        <div class="resumen-carrito">
+            <div class="linea-total"><span>Subtotal</span><strong id="subtotal-carrito">$ 0</strong></div>
+            <p class="nota-carrito">El envío se coordina al confirmar el pedido.</p>
+            <button type="button" class="boton-pagar" id="boton-pagar">
+                Continuar pedido <i class="fa-solid fa-arrow-right"></i>
+            </button>
+            <button type="button" class="vaciar-carrito" id="vaciar-carrito">Vaciar carrito</button>
+        </div>
+    </aside>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script src="JS/TIENDA.js"></script>
+</body>
+</html>

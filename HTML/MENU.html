@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phone Planet | Panel de trabajo</title>
+  <link rel="stylesheet" href="../CSS/MENU.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="../JS/SUPABASE.js"></script>
+<script src="../JS/SEGURIDAD.js"></script>
+<script src="../JS/MENU.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#" aria-label="Phone Planet inicio">
+      <img src="../IMG/LOGO.png" alt="Phone Planet" onerror="this.style.display='none'">
+      <span>PHONE <b>PLANET</b><small>Panel de trabajo</small></span>
+    </a>
+    
+<div class="top-actions">
+  <button id="logoutBtn" class="btn btn-ghost" type="button">
+    <span aria-hidden="true">↪</span>
+    Cerrar sesión
+  </button>
+</div>
+
+  </header>
+
+  <main class="page">
+    <section class="welcome">
+      <div>
+        <p class="eyebrow">SISTEMA INTERNO · DATOS DE PRUEBA</p>
+        <h1 id="welcomeTitle">Bienvenido a Phone Planet</h1>
+        <p id="welcomeText">Administra ventas, inventario y operación de la tienda.</p>
+      </div>
+      <div class="welcome-mark" aria-hidden="true">PP</div>
+    </section>
+
+    <section id="dashboardStats" class="stats"></section>
+    <nav id="moduleMenu" class="module-grid" aria-label="Módulos del sistema"></nav>
+
+    <section id="workspace" class="workspace" hidden>
+      <div class="workspace-head">
+        <div>
+          <p class="eyebrow" id="workspaceEyebrow">MÓDULO</p>
+          <h2 id="workspaceTitle">Módulo</h2>
+          <p id="workspaceDescription" class="muted"></p>
+        </div>
+        <button id="backToMenu" class="btn btn-ghost" type="button">← Volver al menú</button>
+      </div>
+      <div id="workspaceContent"></div>
+    </section>
+
+    <p id="notice" class="notice" role="status" aria-live="polite"></p>
+    <footer>Phone Planet · Prototipo local · Los datos se guardan en este navegador</footer>
+  </main>
+
+  <dialog id="confirmDialog" class="confirm-dialog">
+    <form method="dialog">
+      <h3>Confirmar acción</h3>
+      <p id="confirmText">¿Deseas continuar?</p>
+      <div class="form-actions">
+        <button class="btn btn-ghost" value="cancel">Cancelar</button>
+        <button class="btn btn-danger" id="confirmYes" value="ok">Confirmar</button>
+      </div>
+    </form>
+  </dialog>
+</body>
+</html>
