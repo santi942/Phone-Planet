@@ -15,9 +15,9 @@
     function obtenerClienteSupabase() {
         if (clienteSupabase) return clienteSupabase;
 
-        if (!SUPABASE_URL.startsWith("https://ebyqulenhirnvuaceczp.supabase.co") ||
+        if (!SUPABASE_URL.startsWith("https://") ||
             !SUPABASE_PUBLIC_KEY ||
-            SUPABASE_PUBLIC_KEY.includes("sb_publishable_mu44vvkbB66wT6OZbWDJyA_ssYSogD8")) {
+            SUPABASE_PUBLIC_KEY.includes("PEGA_AQUI")) {
             console.error("Phone Planet: configura SUPABASE_URL y la clave pública en JS/SUPABASE.js.");
             return null;
         }
