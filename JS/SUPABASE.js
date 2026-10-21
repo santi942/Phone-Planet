@@ -1,54 +1,29 @@
-
 /* =========================================
    PHONE PLANET - CONEXIÓN CON SUPABASE
-   Archivo: JS/SUPABASE.js
+   Ruta esperada: JS/SUPABASE.js
 ========================================= */
-
 (() => {
     "use strict";
 
-    // =====================================
-    // CONFIGURACIÓN DEL PROYECTO
-    // =====================================
-
-    const SUPABASE_URL =
-        "https://ebyqulenhirnvuaceczp.supabase.co";
-
-    // Pega aquí tu clave PUBLICABLE (sb_publishable_...)
-    // o tu clave pública anon (JWT antiguo).
-    // NUNCA uses service_role ni una clave secreta aquí.
-    const SUPABASE_PUBLIC_KEY =
-        "sb_publishable_mu44vvkbB66wT6OZbWDJyA_ssYSogD8";
+    const SUPABASE_URL = "https://ebyqulenhirnvuaceczp.supabase.co";
+    // Clave pública/publishable: puede estar en el frontend.
+    // Nunca pegues aquí una clave sb_secret_ o service_role.
+    const SUPABASE_PUBLIC_KEY = "sb_publishable_mu44vvkbB66wT6OZbWDJyA_ssYSogD8";
 
     let clienteSupabase = null;
 
-    // =====================================
-    // INICIALIZAR CLIENTE
-    // =====================================
+    function obtenerClienteSupabase() {
+        if (clienteSupabase) return clienteSupabase;
 
-    function obtenerCliente() {
-        if (clienteSupabase) {
-            return clienteSupabase;
-        }
-
-        if (
-            !SUPABASE_URL.startsWith("https://ebyqulenhirnvuaceczp.supabase.co") ||
+        if (!SUPABASE_URL.startsWith("https://") ||
             !SUPABASE_PUBLIC_KEY ||
-            SUPABASE_PUBLIC_KEY.includes("sb_publishable_mu44vvkbB66wT6OZbWDJyA_ssYSogD8")
-        ) {
-            console.error(
-                "Phone Planet: configura la URL y la clave pública en SUPABASE.js."
-            );
+            SUPABASE_PUBLIC_KEY.includes("PEGA_AQUI")) {
+            console.error("Phone Planet: configura SUPABASE_URL y la clave pública en JS/SUPABASE.js.");
             return null;
         }
 
-        if (
-            !window.supabase ||
-            typeof window.supabase.createClient !== "function"
-        ) {
-            console.error(
-                "Phone Planet: no se ha cargado la librería de Supabase JS."
-            );
+        if (!window.supabase || typeof window.supabase.createClient !== "function") {
+            console.error("Phone Planet: no se cargó la librería de Supabase JS.");
             return null;
         }
 
@@ -66,20 +41,10 @@
         );
 
         window.clienteSupabase = clienteSupabase;
-
-        console.info(
-            "Phone Planet: conexión con Supabase inicializada."
-        );
-
+        console.info("Phone Planet: cliente Supabase inicializado.");
         return clienteSupabase;
     }
 
-    // =====================================
-    // FUNCIONES DISPONIBLES GLOBALMENTE
-    // =====================================
-
-    window.obtenerClienteSupabase = obtenerCliente;
-
-    window.clienteSupabase = obtenerCliente();
-
+    window.obtenerClienteSupabase = obtenerClienteSupabase;
+    window.clienteSupabase = obtenerClienteSupabase();
 })();
