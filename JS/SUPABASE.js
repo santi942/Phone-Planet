@@ -1,50 +1,109 @@
+
+
 /* =========================================
    PHONE PLANET - CONEXIÓN CON SUPABASE
-   Ruta esperada: JS/SUPABASE.js
 ========================================= */
-(() => {
-    "use strict";
 
-    const SUPABASE_URL = "https://ebyqulenhirnvuaceczp.supabase.co";
-    // Clave pública/publishable: puede estar en el frontend.
-    // Nunca pegues aquí una clave sb_secret_ o service_role.
-    const SUPABASE_PUBLIC_KEY = "sb_publishable_mu44vvkbB66wT6OZbWDJyA_ssYSogD8";
+const SUPABASE_URL =
+    "https://ebyqulenhirnvuaceczp.supabase.co";
 
-    let clienteSupabase = null;
+const SUPABASE_PUBLISHABLE_KEY =
+    "sb_publishable_mu44vvkbB66wT6OZbWDJyA_ssYSogD8";
 
-    function obtenerClienteSupabase() {
-        if (clienteSupabase) return clienteSupabase;
+const clienteSupabase = window.supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_PUBLISHABLE_KEY
+);
 
-        if (!SUPABASE_URL.startsWith("https://") ||
-            !SUPABASE_PUBLIC_KEY ||
-            SUPABASE_PUBLIC_KEY.includes("PEGA_AQUI")) {
-            console.error("Phone Planet: configura SUPABASE_URL y la clave pública en JS/SUPABASE.js.");
-            return null;
-        }
+console.log("PHONE PLANET: cliente de Supabase inicializado.");
 
-        if (!window.supabase || typeof window.supabase.createClient !== "function") {
-            console.error("Phone Planet: no se cargó la librería de Supabase JS.");
-            return null;
-        }
+/* =========================================
+   CREAR CUENTA DESDE EL ADMINISTRADOR
+========================================= */
 
-        clienteSupabase = window.supabase.createClient(
-            SUPABASE_URL,
-            SUPABASE_PUBLIC_KEY,
+async function crearUsuarioGeoNorte(
+    nombre,
+    correo,
+    contrasena,
+    rol = "estudiante"
+) {
+    // Verificar que exista una sesión.
+    const {
+        data: sesionData,
+        error: sesionError
+    } = await clienteSupabase.auth.getSession();
+
+    if (sesionError) {
+        throw new Error("No se pudo verificar la sesión.");
+    }
+
+    if (!sesionData.session) {
+        throw new Error(
+            "Debes iniciar sesión como administrador."
+        );
+    }
+
+    // Validar los datos antes de enviarlos.
+    nombre = String(nombre || "").trim();
+    correo = String(correo || "").trim();
+    contrasena = String(contrasena || "");
+
+    if (!nombre || !correo || !contrasena) {
+        throw new Error(
+            "Completa todos los campos obligatorios."
+        );
+    }
+
+    if (!["estudiante", "administrador"].includes(rol)) {
+        throw new Error("El rol seleccionado no es válido.");
+    }
+
+    // Enviar los datos a la función del servidor.
+    const { data, error } =
+        await clienteSupabase.functions.invoke(
+            "smart-worker",
             {
-                auth: {
-                    persistSession: true,
-                    autoRefreshToken: true,
-                    detectSessionInUrl: true,
-                    storage: window.localStorage
+                body: {
+                    nombre,
+                    correo,
+                    contrasena,
+                    rol
                 }
             }
         );
 
-        window.clienteSupabase = clienteSupabase;
-        console.info("Phone Planet: cliente Supabase inicializado.");
-        return clienteSupabase;
+    if (error) {
+        console.error(
+            "Error de smart-worker:",
+            error
+        );
+
+        let mensaje =
+            error.message ||
+            "No se pudo crear la cuenta.";
+
+        // Intentar recuperar el mensaje del servidor.
+        try {
+            if (error.context) {
+                const respuesta =
+                    await error.context.clone().json();
+
+                if (respuesta.error) {
+                    mensaje = respuesta.error;
+                } else if (respuesta.message) {
+                    mensaje = respuesta.message;
+                }
+            }
+        } catch (_) {
+            // La respuesta no necesariamente contiene JSON.
+        }
+
+        throw new Error(mensaje);
     }
 
-    window.obtenerClienteSupabase = obtenerClienteSupabase;
-    window.clienteSupabase = obtenerClienteSupabase();
-})();
+    if (data?.error) {
+        throw new Error(data.error);
+    }
+
+    return data;
+}
