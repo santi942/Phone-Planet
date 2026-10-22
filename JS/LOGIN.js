@@ -90,7 +90,7 @@ document.addEventListener("DOMContentLoaded", () => {
             texto.includes("function not found") ||
             texto.includes("404")
         ) {
-            return "No se encontró login-codigo. Verifica que la función esté desplegada.";
+            return "No se encontró bright-endpoint. Verifica que la función esté desplegada.";
         }
 
         if (
@@ -173,9 +173,9 @@ document.addEventListener("DOMContentLoaded", () => {
         cambiarEstadoBoton(true);
 
         try {
-            // Se envían los nombres que espera login-codigo.
+            // Se envían los nombres que espera bright-endpoint.
             const { data, error } = await supabase.functions.invoke(
-                "login-codigo",
+                "bright-endpoint",
                 {
                     body: {
                         codigo,
@@ -188,12 +188,12 @@ document.addEventListener("DOMContentLoaded", () => {
             // Registrar el error completo para poder diagnosticarlo.
             if (error) {
                 console.error(
-                    "Error invocando login-codigo:",
+                    "Error invocando bright-endpoint:",
                     error
                 );
 
                 throw new Error(
-                    error.message || "Error al llamar login-codigo."
+                    error.message || "Error al llamar bright-endpoint."
                 );
             }
 
@@ -206,7 +206,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             if (!accessToken || !refreshToken) {
                 throw new Error(
-                    "login-codigo no devolvió una sesión válida."
+                    "bright-endpoint no devolvió una sesión válida."
                 );
             }
 
