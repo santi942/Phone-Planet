@@ -1,13 +1,16 @@
 /* =====================================================
-   PHONE PLANET - PROTOTIPO LOCAL CON DATOS DE PRUEBA
-   No conectado a Supabase. Los roles son simulados.
+   PHONE PLANET - MENU conectado a Supabase
+   Conserva el HTML/CSS y los formularios existentes.
    ===================================================== */
 (() => {
   "use strict";
 
-  const STORAGE_KEY = "phonePlanetDemo_v1";
-  const ROLE_KEY = "phonePlanetDemoRole_v1";
   const $ = (id) => document.getElementById(id);
+  const db = window.clienteSupabase || window.supabaseClient || (typeof clienteSupabase !== "undefined" ? clienteSupabase : null);
+  let currentUser = null;
+  let currentProfile = null;
+  let persistedState = null;
+  let saveQueue = Promise.resolve();
 
   const money = (value) => new Intl.NumberFormat("es-CO", {
     style: "currency",
@@ -35,10 +38,8 @@
 
   const LOCAL_NAME = "Phone Planet";
   const LOCAL_NIT = "PENDIENTE POR CONFIGURAR";
-  const ADMIN_EMPLOYEE_ID = "admin-demo";
-
-  let state = loadState();
-  let role = localStorage.getItem(ROLE_KEY) || "administrador";
+  let state = emptyState();
+  let role = "empleado";
   let activeModule = null;
 
   const modules = [
@@ -74,7 +75,7 @@
       id: "employees",
       icon: "👥",
       title: "Empleados",
-      desc: "Registra y administra el personal de prueba.",
+      desc: "Consulta los usuarios y roles registrados en Supabase.",
       roles: ["administrador"]
     },
     {
@@ -107,150 +108,146 @@
     }
   ];
 
-  function seedState() {
-    const employees = [
-      {
-        id: "emp-1",
-        name: "Laura Gómez",
-        username: "Laura Gómez",
-        active: true
-      },
-      {
-        id: "emp-2",
-        name: "Daniel Rodríguez",
-        username: "Daniel Rodríguez",
-        active: true
-      },
-      {
-        id: "emp-3",
-        name: "Camila Torres",
-        username: "Camila Torres",
-        active: true
-      }
-    ];
-
-    const products = [
-      {
-        id: "prd-1",
-        name: "Audífonos inalámbricos",
-        description: "Audífonos Bluetooth inalámbricos",
-        code: "AUD-001",
-        price: 65000,
-        stock: 18,
-        reorderLevel: 5
-      },
-      {
-        id: "prd-2",
-        name: "Cargador USB-C 25W",
-        description: "Cargador de pared USB-C de 25W",
-        code: "CAR-002",
-        price: 45000,
-        stock: 25,
-        reorderLevel: 5
-      },
-      {
-        id: "prd-3",
-        name: "Funda transparente",
-        description: "Funda protectora transparente para celular",
-        code: "FUN-003",
-        price: 18000,
-        stock: 40,
-        reorderLevel: 5
-      },
-      {
-        id: "prd-4",
-        name: "Cable USB-C",
-        description: "Cable de carga y datos USB-C",
-        code: "CAB-004",
-        price: 15000,
-        stock: 32,
-        reorderLevel: 5
-      },
-      {
-        id: "prd-5",
-        name: "Protector de pantalla",
-        description: "Protector de pantalla para celular",
-        code: "PRO-005",
-        price: 12000,
-        stock: 50,
-        reorderLevel: 5
-      }
-    ];
-
-    return {
-      employees,
-      products,
-      sales: [],
-      incoming: [],
-      expenses: [],
-      payroll: [],
-      rent: []
-    };
+  function emptyState() {
+    return { employees: [], products: [], sales: [], incoming: [], expenses: [], payroll: [], rent: [] };
   }
 
-  function loadState() {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+  const clone = value => JSON.parse(JSON.stringify(value));
+  const resultOrThrow = (result, label) => {
+    if (result.error) throw new Error(`${label}: ${result.error.message}`);
+    return result.data;
+  };
 
-      if (saved) {
-        const parsed = JSON.parse(saved);
+  async function loadSupabaseState() {
+    if (!db) throw new Error("No se encontró window.clienteSupabase. Revisa que SUPABASE.js se cargue antes de MENU.js.");
+    const { data: authData, error: authError } = await db.auth.getUser();
+    if (authError) throw authError;
+    currentUser = authData?.user;
+    if (!currentUser) throw new Error("No hay una sesión activa. Inicia sesión nuevamente.");
 
-        if (
-          parsed &&
-          Array.isArray(parsed.products) &&
-          Array.isArray(parsed.sales)
-        ) {
-          parsed.employees ||= [];
-          parsed.incoming ||= [];
-          parsed.expenses ||= [];
-          parsed.payroll ||= [];
-          parsed.rent ||= [];
+    const profileResult = await db.from("perfiles").select("id,nombre,rol,codigo_usuario,email").eq("id", currentUser.id).single();
+    currentProfile = resultOrThrow(profileResult, "No se pudo consultar el perfil");
+    const normalizedRole = String(currentProfile.rol || "").toLowerCase();
+    role = normalizedRole.includes("admin") || normalizedRole === "administrador" ? "administrador" : "empleado";
 
-          parsed.products.forEach(product => {
-            product.description ||= product.name || "Sin descripción";
-            product.reorderLevel = Number.isFinite(
-              Number(product.reorderLevel)
-            )
-              ? Number(product.reorderLevel)
-              : 5;
-          });
+    const [productsR, profilesR, salesR, detailsR, incomingR] = await Promise.all([
+      db.from("productos").select("id,codigo,nombre,descripcion,precio,stock,nivel_reorden,activo,creado_en").eq("activo", true).order("nombre"),
+      db.from("perfiles").select("id,nombre,rol,codigo_usuario,email").order("nombre"),
+      db.from("ventas").select("id,empleado_id,fecha,medio_pago,nota,subtotal,descuento,total,creado_en").order("fecha", { ascending: false }),
+      db.from("detalle_ventas").select("id,venta_id,producto_id,codigo_producto,nombre_producto,cantidad,precio_original,descuento_unitario,precio_unitario,total_linea"),
+      db.from("entradas_mercancia").select("id,producto_id,registrado_por,fecha,cantidad,costo_unitario,costo_total,proveedor,observaciones,creado_en").order("fecha", { ascending: false })
+    ]);
+    const products = resultOrThrow(productsR, "No se pudieron cargar los productos");
+    const profiles = resultOrThrow(profilesR, "No se pudieron cargar los perfiles");
+    const sales = resultOrThrow(salesR, "No se pudieron cargar las ventas");
+    const details = resultOrThrow(detailsR, "No se pudieron cargar los detalles de venta");
+    const incoming = resultOrThrow(incomingR, "No se pudieron cargar las entradas de mercancía");
 
-          parsed.sales.forEach(sale => {
-            sale.discountPerUnit = Number(sale.discountPerUnit) || 0;
-            sale.originalUnitPrice = Number(
-              sale.originalUnitPrice ?? sale.unitPrice
-            ) || 0;
-            sale.unitPrice = Number(sale.unitPrice) || 0;
-            sale.total = Number(sale.total) || 0;
-          });
+    state = emptyState();
+    state.products = products.map(p => ({ id:p.id, code:p.codigo, name:p.nombre, description:p.descripcion || p.nombre, price:Number(p.precio)||0, stock:Number(p.stock)||0, reorderLevel:Number(p.nivel_reorden)||0, active:p.activo }));
+    state.employees = profiles.map(p => ({ id:p.id, name:p.nombre || p.email || p.codigo_usuario || "Usuario", username:p.codigo_usuario, email:p.email, role:p.rol, active:true }));
+    state.sales = details.map(d => {
+      const sale = sales.find(s => s.id === d.venta_id) || {};
+      return { id:d.id, transactionId:d.venta_id, employeeId:sale.empleado_id, productId:d.producto_id, productCode:d.codigo_producto, productName:d.nombre_producto, description:d.nombre_producto, qty:Number(d.cantidad)||0, originalUnitPrice:Number(d.precio_original)||0, discountPerUnit:Number(d.descuento_unitario)||0, unitPrice:Number(d.precio_unitario)||0, total:Number(d.total_linea)||0, paymentMethod:sale.medio_pago, date:sale.fecha, createdAt:sale.creado_en, note:sale.nota || "" };
+    });
+    state.incoming = incoming.map(e => {
+      const product = products.find(p => p.id === e.producto_id);
+      const profile = profiles.find(p => p.id === e.registrado_por);
+      return { id:e.id, productId:e.producto_id, productName:product?.nombre || "Producto", code:product?.codigo || "—", qty:Number(e.cantidad)||0, unitValue:Number(e.costo_unitario)||0, totalCost:Number(e.costo_total)||0, date:e.fecha, supplier:e.proveedor || "", note:e.observaciones || "", employee:profile?.nombre || "Usuario", createdAt:e.creado_en };
+    });
 
-          return parsed;
-        }
-      }
-    } catch (error) {
-      console.warn("No se pudieron leer los datos guardados", error);
+    if (role === "administrador") {
+      const [expensesR, payrollR, rentR] = await Promise.all([
+        db.from("gastos").select("id,registrado_por,fecha,concepto,valor,observaciones,creado_en").order("fecha", { ascending:false }),
+        db.from("nomina").select("id,empleado_id,registrado_por,periodo_inicio,periodo_fin,fecha_pago,concepto,valor,creado_en").order("fecha_pago", { ascending:false }),
+        db.from("arriendos").select("id,registrado_por,fecha_pago,periodo,concepto,valor,observaciones,creado_en").order("fecha_pago", { ascending:false })
+      ]);
+      state.expenses = resultOrThrow(expensesR, "No se pudieron cargar los gastos").map(x => ({ id:x.id, date:x.fecha, concept:x.concepto, amount:Number(x.valor)||0, note:x.observaciones||"", createdAt:x.creado_en }));
+      state.payroll = resultOrThrow(payrollR, "No se pudo cargar la nómina").map(x => ({ id:x.id, date:x.fecha_pago, concept:x.concepto, amount:Number(x.valor)||0, employeeId:x.empleado_id, periodStart:x.periodo_inicio, periodEnd:x.periodo_fin, createdAt:x.creado_en }));
+      state.rent = resultOrThrow(rentR, "No se pudo cargar el arriendo").map(x => ({ id:x.id, date:x.fecha_pago, period:x.periodo, concept:x.concepto, amount:Number(x.valor)||0, note:x.observaciones||"", createdAt:x.creado_en }));
     }
-
-    const fresh = seedState();
-
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(fresh));
-    } catch (error) {}
-
-    return fresh;
+    persistedState = clone(state);
   }
 
   function saveState() {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    const target = clone(state);
+    saveQueue = saveQueue.then(() => syncChanges(persistedState || emptyState(), target)).then(() => {
+      persistedState = target;
       return true;
-    } catch (error) {
-      notify(
-        "No se pudo guardar en el navegador. Revisa el almacenamiento disponible.",
-        "error"
-      );
+    }).catch(error => {
+      console.error("Error guardando en Supabase:", error);
+      notify(`No se guardó en Supabase: ${error.message}`, "error");
       return false;
+    });
+    return true;
+  }
+
+  async function syncChanges(previous, next) {
+    if (!db || !currentUser) throw new Error("No hay conexión autenticada con Supabase.");
+    const oldProducts = new Map((previous.products||[]).map(x => [x.id,x]));
+    const newProducts = new Map((next.products||[]).map(x => [x.id,x]));
+    for (const product of next.products || []) {
+      const old = oldProducts.get(product.id);
+      if (!old) {
+        const payload = { codigo:product.code, nombre:product.name, descripcion:product.description || product.name, precio:product.price, stock:product.stock, nivel_reorden:product.reorderLevel ?? 5, activo:true };
+        if (isUuid(product.id)) payload.id = product.id;
+        const r = await db.from("productos").insert(payload);
+        resultOrThrow(r, "No se pudo crear el producto");
+      } else if (old.code !== product.code || old.name !== product.name || old.description !== product.description || Number(old.price) !== Number(product.price) || Number(old.reorderLevel) !== Number(product.reorderLevel)) {
+        const r = await db.from("productos").update({ codigo:product.code, nombre:product.name, descripcion:product.description || product.name, precio:product.price, nivel_reorden:product.reorderLevel ?? 5 }).eq("id", product.id);
+        resultOrThrow(r, "No se pudo actualizar el producto");
+      }
     }
+    for (const old of previous.products || []) {
+      if (!newProducts.has(old.id)) {
+        const r = await db.from("productos").update({ activo:false }).eq("id", old.id);
+        resultOrThrow(r, "No se pudo desactivar el producto");
+      }
+    }
+
+    const oldTransactions = new Set((previous.sales||[]).map(x => x.transactionId || x.id));
+    const newTransactions = new Map();
+    for (const line of next.sales || []) {
+      const key = line.transactionId || line.id;
+      if (!oldTransactions.has(key)) {
+        if (!newTransactions.has(key)) newTransactions.set(key, []);
+        newTransactions.get(key).push(line);
+      }
+    }
+    for (const lines of newTransactions.values()) {
+      if (!lines.length) continue;
+      const first = lines[0];
+      const subtotal = lines.reduce((sum,x) => sum + Number(x.originalUnitPrice||0)*Number(x.qty||0), 0);
+      const discount = lines.reduce((sum,x) => sum + Number(x.discountPerUnit||0)*Number(x.qty||0), 0);
+      const total = lines.reduce((sum,x) => sum + Number(x.total||0), 0);
+      const payload = lines.map(x => ({ producto_id:x.productId, cantidad:x.qty, precio_original:x.originalUnitPrice, descuento_unitario:x.discountPerUnit, precio_unitario:x.unitPrice, total_linea:x.total, codigo_producto:x.productCode, nombre_producto:x.productName }));
+      const r = await db.rpc("registrar_venta", { p_fecha:first.date || today(), p_medio_pago:first.paymentMethod, p_nota:first.note || null, p_subtotal:subtotal, p_descuento:discount, p_total:total, p_detalles:payload, p_empleado_id:first.employeeId || currentUser.id });
+      resultOrThrow(r, "No se pudo registrar la venta");
+    }
+
+    const oldIncoming = new Set((previous.incoming||[]).map(x => x.id));
+    for (const entry of next.incoming || []) {
+      if (oldIncoming.has(entry.id)) continue;
+      const r = await db.rpc("registrar_entrada_mercancia", { p_producto_id:entry.productId, p_fecha:entry.date || today(), p_cantidad:entry.qty, p_costo_unitario:entry.unitValue, p_proveedor:entry.supplier || null, p_observaciones:entry.note || null });
+      resultOrThrow(r, "No se pudo registrar la entrada de mercancía");
+    }
+
+    await syncMoneyRecords("expenses", "gastos", previous, next, item => ({ registrado_por:currentUser.id, fecha:item.date || today(), concepto:item.concept, valor:item.amount, observaciones:item.note || null }));
+    await syncMoneyRecords("payroll", "nomina", previous, next, item => ({ empleado_id:item.employeeId || null, registrado_por:currentUser.id, periodo_inicio:item.periodStart || item.date || today(), periodo_fin:item.periodEnd || item.date || today(), fecha_pago:item.date || today(), concepto:item.concept, valor:item.amount }));
+    await syncMoneyRecords("rent", "arriendos", previous, next, item => ({ registrado_por:currentUser.id, fecha_pago:item.date || today(), periodo:item.period || item.date || today(), concepto:item.concept, valor:item.amount, observaciones:item.note || null }));
+  }
+
+  async function syncMoneyRecords(key, tableName, previous, next, mapRecord) {
+    const oldIds = new Set((previous[key]||[]).map(x => x.id));
+    for (const item of next[key] || []) {
+      if (oldIds.has(item.id)) continue;
+      const r = await db.from(tableName).insert(mapRecord(item));
+      resultOrThrow(r, `No se pudo guardar el registro de ${key}`);
+    }
+  }
+
+  function isUuid(value) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value||""));
   }
 
   function escapeHTML(value) {
@@ -264,48 +261,37 @@
   }
 
   function notify(message, type = "") {
-    const notice = $("notice");
-    notice.textContent = message;
-    notice.className = `notice ${type}`;
+  const notice = $("notice");
+
+  if (!notice) {
+    if (message) console.info("Phone Planet:", message);
+    return;
   }
 
+  notice.textContent = message;
+  notice.className = `notice ${type}`;
+}
+
   function setRole(newRole) {
-    role = newRole === "empleado"
-      ? "empleado"
-      : "administrador";
-
-    localStorage.setItem(ROLE_KEY, role);
-    $("roleSwitcher").value = role;
-
-    $("currentUser").textContent = role === "administrador"
-      ? "Administrador de prueba"
-      : "Empleado de prueba";
-
-    $("welcomeTitle").textContent = role === "administrador"
-      ? "Bienvenido, administrador"
-      : "Bienvenido al equipo";
-
+    role = newRole === "administrador" ? "administrador" : "empleado";
+    const currentUserElement = $("currentUser");
+    if (currentUserElement) currentUserElement.textContent = currentProfile?.nombre || currentProfile?.codigo_usuario || currentUser?.email || "Usuario";
+    $("welcomeTitle").textContent = role === "administrador" ? `Bienvenido, ${currentProfile?.nombre || "administrador"}` : `Bienvenido, ${currentProfile?.nombre || "al equipo"}`;
     $("welcomeText").textContent = role === "administrador"
       ? "Controla ventas, inventario, empleados y finanzas de Phone Planet."
       : "Registra las ventas y la mercancía que ingresa a la tienda.";
-
+    const roleSwitcher = $("roleSwitcher");
+    if (roleSwitcher) { roleSwitcher.value = role; roleSwitcher.disabled = true; }
     activeModule = null;
     $("workspace").hidden = true;
     $("moduleMenu").hidden = false;
-
     renderDashboard();
     renderMenu();
-
-    notify(
-      `Modo de prueba: ${role}. Recuerda que no es un control de seguridad real.`,
-      "success"
-    );
   }
-
   function renderDashboard() {
     const sales = role === "administrador"
       ? state.sales
-      : state.sales.filter(sale => sale.employeeId === "emp-1");
+      : state.sales.filter(sale => sale.employeeId === currentUser?.id);
 
     const totalSales = sales.reduce(
       (sum, sale) => sum + sale.total,
@@ -492,13 +478,8 @@
 
   function renderSalesForm() {
     const employeeList = role === "empleado"
-      ? `<option value="emp-1">Empleado de prueba</option>`
-      : `
-        <option value="${ADMIN_EMPLOYEE_ID}">
-          Administrador de prueba (mis ventas)
-        </option>
-        ${employeeOptions()}
-      `;
+      ? `<option value="${escapeHTML(currentUser?.id || "")}">${escapeHTML(currentProfile?.nombre || "Mi usuario")}</option>`
+      : `<option value="${escapeHTML(currentUser?.id || "")}">${escapeHTML(currentProfile?.nombre || "Mis ventas")}</option>${employeeOptions()}`;
 
     const cart = [];
     const noProducts = state.products.length === 0;
@@ -866,14 +847,13 @@
       renderCart();
       notify("Carrito vacío.", "success");
     });
-
-    $("finishSale").addEventListener("click", () => {
+        $("finishSale").addEventListener("click", () => {
       if (!cart.length) {
         return notify("Agrega al menos un producto al carrito.", "error");
       }
 
       const employeeId = role === "empleado"
-        ? "emp-1"
+        ? currentUser.id
         : $("saleEmployee").value;
 
       const paymentMethod = $("salePayment").value;
@@ -951,9 +931,7 @@
       const closingDate = today();
 
       // Cada rol cierra únicamente sus propias ventas.
-      const employeeId = role === "empleado"
-        ? "emp-1"
-        : ADMIN_EMPLOYEE_ID;
+      const employeeId = currentUser.id;
 
       const todaysSales = state.sales.filter(sale =>
         sale.date === closingDate &&
@@ -983,9 +961,7 @@
         todaysSales.map(sale => sale.transactionId || sale.id)
       ).size;
 
-      const employee = role === "empleado"
-        ? employeeName("emp-1")
-        : "Administrador de prueba";
+      const employee = employeeName(currentUser.id);
 
       const generatedAt = new Date().toLocaleString("es-CO", {
         dateStyle: "short",
@@ -1047,7 +1023,7 @@
 
       $("closingReport").innerHTML = reportHTML;
 
-    
+
 $("shareClosing").addEventListener("click", async () => {
   const report = $("printClosingReport");
 
@@ -1341,7 +1317,7 @@ $("shareClosing").addEventListener("click", async () => {
       const code = $("pCode").value.trim().toUpperCase();
       const name = $("pName").value.trim();
       const description = $("pDescription").value.trim();
-      const price = Number($("pPrice").value);
+            const price = Number($("pPrice").value);
       const stock = Number($("pStock").value);
       const reorderLevel = Number($("pReorder").value);
 
@@ -1369,7 +1345,7 @@ $("shareClosing").addEventListener("click", async () => {
       }
 
       state.products.push({
-        id: uid("PRD"),
+        id: crypto.randomUUID(),
         name,
         description,
         code,
@@ -1735,84 +1711,21 @@ $("shareClosing").addEventListener("click", async () => {
   }
 
   function renderEmployees() {
-    if (role !== "administrador") {
-      return notify("Acceso restringido.", "error");
-    }
-
-    $("workspaceContent").innerHTML = `
-      <div class="form-panel">
-        <h3>Registrar empleado de prueba</h3>
-
-        <form id="employeeForm" class="toolbar">
-          <div class="field">
-            <label for="employeeName">Nombre completo</label>
-            <input id="employeeName" maxlength="100" required>
-          </div>
-
-          <button class="btn btn-primary" type="submit">
-            Agregar empleado
-          </button>
-        </form>
-      </div>
-
-      <div id="employeesTable"></div>
-    `;
-
-    $("employeeForm").addEventListener("submit", event => {
-      event.preventDefault();
-
-      const name = $("employeeName").value.trim();
-      if (!name) return;
-
-      state.employees.push({
-        id: uid("EMP"),
-        name,
-        active: true
-      });
-
-      if (!saveState()) return;
-
-      renderEmployees();
-      notify("Empleado de prueba agregado.", "success");
-    });
-
+    if (role !== "administrador") return notify("Acceso restringido.", "error");
     const rows = state.employees.map(employee => `
       <tr>
         <td>${escapeHTML(employee.name)}</td>
-        <td>${employee.active === false ? "Inactivo" : "Activo"}</td>
+        <td>${escapeHTML(employee.username || "—")}</td>
+        <td>${escapeHTML(employee.email || "—")}</td>
+        <td>${escapeHTML(employee.role || "—")}</td>
         <td>${state.sales.filter(sale => sale.employeeId === employee.id).length}</td>
-        <td>
-          <button class="btn btn-ghost btn-small"
-            data-toggle="${escapeHTML(employee.id)}">
-            ${employee.active === false ? "Activar" : "Desactivar"}
-          </button>
-        </td>
       </tr>
     `).join("");
-
-    $("employeesTable").innerHTML = table(
-      ["Empleado", "Estado", "Ventas registradas", "Acción"],
-      rows
-    );
-
-    $("employeesTable")
-      .querySelectorAll("[data-toggle]")
-      .forEach(button => {
-        button.addEventListener("click", () => {
-          const employee = state.employees.find(
-            item => item.id === button.dataset.toggle
-          );
-
-          if (employee) {
-            employee.active = employee.active === false;
-          }
-
-          if (!saveState()) return;
-
-          renderEmployees();
-          notify("Estado actualizado.", "success");
-        });
-      });
+    $("workspaceContent").innerHTML = `
+      <h3>Usuarios registrados</h3>
+      <p class="muted">Esta lista se consulta desde la tabla perfiles. Las cuentas deben crearse mediante el flujo seguro de autenticación; no se crean perfiles ficticios desde este menú.</p>
+      ${table(["Nombre", "Código", "Correo", "Rol", "Líneas de venta"], rows, "No hay perfiles visibles para esta cuenta.")}
+    `;
   }
 
   function renderIncomingHistory() {
@@ -1860,8 +1773,16 @@ $("shareClosing").addEventListener("click", async () => {
         <h3>${title}</h3>
 
         <form id="moneyForm" class="form-grid">
+          ${kind === "payroll" ? `
+            <div class="field wide">
+              <label for="payrollEmployee">Empleado</label>
+              <select id="payrollEmployee" required>
+                ${employeeOptions()}
+              </select>
+            </div>
+          ` : ""}
           <div class="field wide">
-            <label for="moneyConcept">${conceptLabel}</label>
+            <label for="moneyConcept">${kind === "payroll" ? "Concepto del pago" : conceptLabel}</label>
             <input id="moneyConcept" maxlength="140" required>
           </div>
 
@@ -1927,6 +1848,7 @@ $("shareClosing").addEventListener("click", async () => {
         id: uid(kind.toUpperCase()),
         concept,
         amount,
+        employeeId: kind === "payroll" ? $("payrollEmployee").value : null,
         date: $("moneyDate").value || today(),
         createdAt: new Date().toISOString()
       });
@@ -1942,40 +1864,21 @@ $("shareClosing").addEventListener("click", async () => {
   }
 
   function employeeName(id) {
-    if (id === ADMIN_EMPLOYEE_ID) {
-      return "Administrador de prueba";
-    }
-
     return state.employees.find(employee => employee.id === id)?.name
-      || "Empleado no encontrado";
+      || (id === currentUser?.id ? (currentProfile?.nombre || currentUser?.email) : "Empleado no encontrado");
   }
 
   function uid(prefix) {
     return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
   }
 
-  $("roleSwitcher").addEventListener("change", event => {
-    setRole(event.target.value);
-  });
-
-  $("backToMenu").addEventListener("click", goBack);
-
-  $("resetDemo").addEventListener("click", () => {
-    if (!confirm(
-      "Esto borrará los cambios locales de la demo y restaurará los datos de ejemplo. ¿Continuar?"
-    )) {
-      return;
-    }
-
-    state = seedState();
-    saveState();
-    setRole("administrador");
-
-    notify(
-      "Demo reiniciada con datos de ejemplo.",
-      "success"
-    );
-  });
+  const roleSwitcherElement = $("roleSwitcher");
+  if (roleSwitcherElement) {
+    roleSwitcherElement.addEventListener("change", () => {
+      if (roleSwitcherElement.value !== role) roleSwitcherElement.value = role;
+    });
+  }
+  if ($("backToMenu")) $("backToMenu").addEventListener("click", goBack);
 
   // Indicadores de reposición visibles aunque el CSS no tenga estas clases.
   if (!document.getElementById("phonePlanetStockStatusStyle")) {
@@ -1985,5 +1888,16 @@ $("shareClosing").addEventListener("click", async () => {
     document.head.appendChild(style);
   }
 
-  setRole(role);
+  async function initializePhonePlanet() {
+    try {
+      notify("Conectando con Supabase…");
+      await loadSupabaseState();
+      setRole(role);
+      notify("Datos cargados desde Supabase.", "success");
+    } catch (error) {
+      console.error(error);
+      notify(`No se pudo iniciar Phone Planet: ${error.message}`, "error");
+    }
+  }
+  initializePhonePlanet();
 })();
