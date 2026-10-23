@@ -57,6 +57,15 @@
       desc: "Registra mercancía recibida y actualiza stock.",
       roles: ["administrador", "empleado"]
     },
+    
+    {
+      id: "warranties",
+      icon: "🛡️",
+      title: "Garantías",
+      desc: "Registra garantías, calcula vencimientos y comparte comprobantes.",
+      roles: ["administrador", "empleado"]
+    },
+
     {
       id: "stock",
       icon: "📱",
@@ -108,9 +117,20 @@
     }
   ];
 
+
   function emptyState() {
-    return { employees: [], products: [], sales: [], incoming: [], expenses: [], payroll: [], rent: [] };
+    return {
+      employees: [],
+      products: [],
+      sales: [],
+      incoming: [],
+      expenses: [],
+      payroll: [],
+      rent: [],
+      warranties: []
+    };
   }
+
 
   const clone = value => JSON.parse(JSON.stringify(value));
   const resultOrThrow = (result, label) => {
@@ -125,14 +145,22 @@
     currentUser = authData?.user;
     if (!currentUser) throw new Error("No hay una sesión activa. Inicia sesión nuevamente.");
 
-    const profileResult = await db.from("perfiles").select("id,nombre,rol,codigo_usuario,email").eq("id", currentUser.id).single();
+    
+    const profileResult = await db
+  .from("perfiles")
+  .select("id,nombre,rol,codigo_usuario,email,activo")
+  .eq("id", currentUser.id)
+  .single();
+
     currentProfile = resultOrThrow(profileResult, "No se pudo consultar el perfil");
     const normalizedRole = String(currentProfile.rol || "").toLowerCase();
     role = normalizedRole.includes("admin") || normalizedRole === "administrador" ? "administrador" : "empleado";
 
     const [productsR, profilesR, salesR, detailsR, incomingR] = await Promise.all([
       db.from("productos").select("id,codigo,nombre,descripcion,precio,stock,nivel_reorden,activo,creado_en").eq("activo", true).order("nombre"),
-      db.from("perfiles").select("id,nombre,rol,codigo_usuario,email").order("nombre"),
+     db.from("perfiles")
+  .select("id,nombre,rol,codigo_usuario,email,activo")
+  .order("nombre"),
       db.from("ventas").select("id,empleado_id,fecha,medio_pago,nota,subtotal,descuento,total,creado_en").order("fecha", { ascending: false }),
       db.from("detalle_ventas").select("id,venta_id,producto_id,codigo_producto,nombre_producto,cantidad,precio_original,descuento_unitario,precio_unitario,total_linea"),
       db.from("entradas_mercancia").select("id,producto_id,registrado_por,fecha,cantidad,costo_unitario,costo_total,proveedor,observaciones,creado_en").order("fecha", { ascending: false })
@@ -142,10 +170,45 @@
     const sales = resultOrThrow(salesR, "No se pudieron cargar las ventas");
     const details = resultOrThrow(detailsR, "No se pudieron cargar los detalles de venta");
     const incoming = resultOrThrow(incomingR, "No se pudieron cargar las entradas de mercancía");
+    
+    // Cargar las garantías registradas en Supabase.
+    const warrantiesR = await db
+      .from("garantias")
+      .select(`
+        id,
+        producto_id,
+        venta_id,
+        detalle_venta_id,
+        registrado_por,
+        comprador_nombre,
+        comprador_documento,
+        comprador_telefono,
+        fecha_compra,
+        duracion_valor,
+        duracion_unidad,
+        fecha_vencimiento,
+        precio_venta,
+        observaciones,
+        creado_en
+      `)
+      .order("creado_en", { ascending: false });
+
+    const warranties = resultOrThrow(
+      warrantiesR,
+      "No se pudieron cargar las garantías"
+    );
+
 
     state = emptyState();
     state.products = products.map(p => ({ id:p.id, code:p.codigo, name:p.nombre, description:p.descripcion || p.nombre, price:Number(p.precio)||0, stock:Number(p.stock)||0, reorderLevel:Number(p.nivel_reorden)||0, active:p.activo }));
-    state.employees = profiles.map(p => ({ id:p.id, name:p.nombre || p.email || p.codigo_usuario || "Usuario", username:p.codigo_usuario, email:p.email, role:p.rol, active:true }));
+    state.employees = profiles.map(p => ({
+  id: p.id,
+  name: p.nombre || p.email || p.codigo_usuario || "Usuario",
+  username: p.codigo_usuario,
+  email: p.email,
+  role: p.rol,
+  active: p.activo === true
+}));
     state.sales = details.map(d => {
       const sale = sales.find(s => s.id === d.venta_id) || {};
       return { id:d.id, transactionId:d.venta_id, employeeId:sale.empleado_id, productId:d.producto_id, productCode:d.codigo_producto, productName:d.nombre_producto, description:d.nombre_producto, qty:Number(d.cantidad)||0, originalUnitPrice:Number(d.precio_original)||0, discountPerUnit:Number(d.descuento_unitario)||0, unitPrice:Number(d.precio_unitario)||0, total:Number(d.total_linea)||0, paymentMethod:sale.medio_pago, date:sale.fecha, createdAt:sale.creado_en, note:sale.nota || "" };
@@ -155,6 +218,24 @@
       const profile = profiles.find(p => p.id === e.registrado_por);
       return { id:e.id, productId:e.producto_id, productName:product?.nombre || "Producto", code:product?.codigo || "—", qty:Number(e.cantidad)||0, unitValue:Number(e.costo_unitario)||0, totalCost:Number(e.costo_total)||0, date:e.fecha, supplier:e.proveedor || "", note:e.observaciones || "", employee:profile?.nombre || "Usuario", createdAt:e.creado_en };
     });
+
+    state.warranties = warranties.map(w => ({
+      id: w.id,
+      productId: w.producto_id,
+      saleId: w.venta_id,
+      saleDetailId: w.detalle_venta_id,
+      registeredBy: w.registrado_por,
+      buyerName: w.comprador_nombre,
+      buyerDocument: w.comprador_documento || "",
+      buyerPhone: w.comprador_telefono,
+      purchaseDate: w.fecha_compra,
+      durationValue: Number(w.duracion_valor),
+      durationUnit: w.duracion_unidad,
+      expirationDate: w.fecha_vencimiento,
+      salePrice: Number(w.precio_venta) || 0,
+      note: w.observaciones || "",
+      createdAt: w.creado_en
+    }));
 
     if (role === "administrador") {
       const [expensesR, payrollR, rentR] = await Promise.all([
@@ -182,60 +263,286 @@
     return true;
   }
 
-  async function syncChanges(previous, next) {
-    if (!db || !currentUser) throw new Error("No hay conexión autenticada con Supabase.");
-    const oldProducts = new Map((previous.products||[]).map(x => [x.id,x]));
-    const newProducts = new Map((next.products||[]).map(x => [x.id,x]));
+  
+async function syncChanges(previous, next) {
+    if (!db || !currentUser) {
+      throw new Error("No hay conexión autenticada con Supabase.");
+    }
+
+    // =====================================================
+    // 1. PRODUCTOS
+    // =====================================================
+    const oldProducts = new Map((previous.products || []).map(x => [x.id, x]));
+    const newProducts = new Map((next.products || []).map(x => [x.id, x]));
+
     for (const product of next.products || []) {
       const old = oldProducts.get(product.id);
+
       if (!old) {
-        const payload = { codigo:product.code, nombre:product.name, descripcion:product.description || product.name, precio:product.price, stock:product.stock, nivel_reorden:product.reorderLevel ?? 5, activo:true };
+        const payload = {
+          codigo: product.code,
+          nombre: product.name,
+          descripcion: product.description || product.name,
+          precio: product.price,
+          stock: product.stock,
+          nivel_reorden: product.reorderLevel ?? 5,
+          activo: true
+        };
+
         if (isUuid(product.id)) payload.id = product.id;
+
         const r = await db.from("productos").insert(payload);
         resultOrThrow(r, "No se pudo crear el producto");
-      } else if (old.code !== product.code || old.name !== product.name || old.description !== product.description || Number(old.price) !== Number(product.price) || Number(old.reorderLevel) !== Number(product.reorderLevel)) {
-        const r = await db.from("productos").update({ codigo:product.code, nombre:product.name, descripcion:product.description || product.name, precio:product.price, nivel_reorden:product.reorderLevel ?? 5 }).eq("id", product.id);
+
+      } else if (
+        old.code !== product.code ||
+        old.name !== product.name ||
+        old.description !== product.description ||
+        Number(old.price) !== Number(product.price) ||
+        Number(old.reorderLevel) !== Number(product.reorderLevel)
+      ) {
+        const r = await db.from("productos")
+          .update({
+            codigo: product.code,
+            nombre: product.name,
+            descripcion: product.description || product.name,
+            precio: product.price,
+            nivel_reorden: product.reorderLevel ?? 5
+          })
+          .eq("id", product.id);
+
         resultOrThrow(r, "No se pudo actualizar el producto");
       }
     }
+
     for (const old of previous.products || []) {
       if (!newProducts.has(old.id)) {
-        const r = await db.from("productos").update({ activo:false }).eq("id", old.id);
+        const r = await db.from("productos")
+          .update({ activo: false })
+          .eq("id", old.id);
+
         resultOrThrow(r, "No se pudo desactivar el producto");
       }
     }
 
-    const oldTransactions = new Set((previous.sales||[]).map(x => x.transactionId || x.id));
+    // =====================================================
+    // 2. VENTAS
+    // =====================================================
+    const oldTransactions = new Set(
+      (previous.sales || []).map(x => x.transactionId || x.id)
+    );
+
     const newTransactions = new Map();
+
     for (const line of next.sales || []) {
       const key = line.transactionId || line.id;
+
       if (!oldTransactions.has(key)) {
-        if (!newTransactions.has(key)) newTransactions.set(key, []);
+        if (!newTransactions.has(key)) {
+          newTransactions.set(key, []);
+        }
+
         newTransactions.get(key).push(line);
       }
     }
+
     for (const lines of newTransactions.values()) {
       if (!lines.length) continue;
+
       const first = lines[0];
-      const subtotal = lines.reduce((sum,x) => sum + Number(x.originalUnitPrice||0)*Number(x.qty||0), 0);
-      const discount = lines.reduce((sum,x) => sum + Number(x.discountPerUnit||0)*Number(x.qty||0), 0);
-      const total = lines.reduce((sum,x) => sum + Number(x.total||0), 0);
-      const payload = lines.map(x => ({ producto_id:x.productId, cantidad:x.qty, precio_original:x.originalUnitPrice, descuento_unitario:x.discountPerUnit, precio_unitario:x.unitPrice, total_linea:x.total, codigo_producto:x.productCode, nombre_producto:x.productName }));
-      const r = await db.rpc("registrar_venta", { p_fecha:first.date || today(), p_medio_pago:first.paymentMethod, p_nota:first.note || null, p_subtotal:subtotal, p_descuento:discount, p_total:total, p_detalles:payload, p_empleado_id:first.employeeId || currentUser.id });
+
+      const subtotal = lines.reduce(
+        (sum, x) => sum + Number(x.originalUnitPrice || 0) * Number(x.qty || 0),
+        0
+      );
+
+      const discount = lines.reduce(
+        (sum, x) => sum + Number(x.discountPerUnit || 0) * Number(x.qty || 0),
+        0
+      );
+
+      const total = lines.reduce(
+        (sum, x) => sum + Number(x.total || 0),
+        0
+      );
+
+      const payload = lines.map(x => ({
+        producto_id: x.productId,
+        cantidad: x.qty,
+        precio_original: x.originalUnitPrice,
+        descuento_unitario: x.discountPerUnit,
+        precio_unitario: x.unitPrice,
+        total_linea: x.total,
+        codigo_producto: x.productCode,
+        nombre_producto: x.productName
+      }));
+
+      const r = await db.rpc("registrar_venta", {
+        p_fecha: first.date || today(),
+        p_medio_pago: first.paymentMethod,
+        p_nota: first.note || null,
+        p_subtotal: subtotal,
+        p_descuento: discount,
+        p_total: total,
+        p_detalles: payload,
+        p_empleado_id: first.employeeId || currentUser.id
+      });
+
       resultOrThrow(r, "No se pudo registrar la venta");
     }
 
-    const oldIncoming = new Set((previous.incoming||[]).map(x => x.id));
+    // =====================================================
+    // 3. ENTRADAS DE MERCANCÍA
+    // =====================================================
+    const oldIncoming = new Set(
+      (previous.incoming || []).map(x => x.id)
+    );
+
     for (const entry of next.incoming || []) {
       if (oldIncoming.has(entry.id)) continue;
-      const r = await db.rpc("registrar_entrada_mercancia", { p_producto_id:entry.productId, p_fecha:entry.date || today(), p_cantidad:entry.qty, p_costo_unitario:entry.unitValue, p_proveedor:entry.supplier || null, p_observaciones:entry.note || null });
+
+      
+const r = await db.rpc("registrar_entrada_mercancia", {
+  p_producto_id: entry.productId,
+  p_fecha: entry.date || today(),
+  p_cantidad: entry.qty,
+  p_costo_unitario: entry.unitValue,
+  p_proveedor: entry.supplier || null,
+  p_observaciones: entry.note || null,
+  p_medio_pago: entry.paymentMethod || null
+});
+
+
       resultOrThrow(r, "No se pudo registrar la entrada de mercancía");
     }
 
-    await syncMoneyRecords("expenses", "gastos", previous, next, item => ({ registrado_por:currentUser.id, fecha:item.date || today(), concepto:item.concept, valor:item.amount, observaciones:item.note || null }));
-    await syncMoneyRecords("payroll", "nomina", previous, next, item => ({ empleado_id:item.employeeId || null, registrado_por:currentUser.id, periodo_inicio:item.periodStart || item.date || today(), periodo_fin:item.periodEnd || item.date || today(), fecha_pago:item.date || today(), concepto:item.concept, valor:item.amount }));
-    await syncMoneyRecords("rent", "arriendos", previous, next, item => ({ registrado_por:currentUser.id, fecha_pago:item.date || today(), periodo:item.period || item.date || today(), concepto:item.concept, valor:item.amount, observaciones:item.note || null }));
-  }
+    // =====================================================
+    // 4. GARANTÍAS
+    // =====================================================
+    const oldWarranties = new Set(
+      (previous.warranties || []).map(x => x.id)
+    );
+
+    for (const warranty of next.warranties || []) {
+      if (oldWarranties.has(warranty.id)) continue;
+
+      const productId = warranty.productId;
+      if (!productId || !isUuid(productId)) {
+        throw new Error(
+          "La garantía no tiene un producto válido de Supabase."
+        );
+      }
+
+      const durationValue = Number(warranty.durationValue);
+      const salePrice = Number(warranty.salePrice);
+
+      if (!Number.isInteger(durationValue) || durationValue <= 0) {
+        throw new Error("La duración de la garantía debe ser mayor que cero.");
+      }
+
+      if (!Number.isFinite(salePrice) || salePrice < 0) {
+        throw new Error("El precio de venta de la garantía no es válido.");
+      }
+
+      const warrantyPayload = {
+        producto_id: productId,
+        venta_id: isUuid(warranty.saleId) ? warranty.saleId : null,
+        detalle_venta_id: isUuid(warranty.saleDetailId)
+          ? warranty.saleDetailId
+          : null,
+        registrado_por: currentUser.id,
+        comprador_nombre: String(warranty.buyerName || "").trim(),
+        comprador_documento: String(warranty.buyerDocument || "").trim() || null,
+        comprador_telefono: String(warranty.buyerPhone || "").trim(),
+        fecha_compra: warranty.purchaseDate || today(),
+        duracion_valor: durationValue,
+        duracion_unidad: warranty.durationUnit,
+        fecha_vencimiento: warranty.expirationDate,
+        precio_venta: salePrice,
+        observaciones: String(warranty.note || "").trim() || null
+      };
+
+      if (!warrantyPayload.comprador_nombre) {
+        throw new Error("Falta el nombre del comprador de la garantía.");
+      }
+
+      if (!warrantyPayload.comprador_telefono) {
+        throw new Error("Falta el teléfono del comprador de la garantía.");
+      }
+
+      if (!["dias", "meses"].includes(warrantyPayload.duracion_unidad)) {
+        throw new Error("La unidad de duración debe ser días o meses.");
+      }
+
+      if (!warrantyPayload.fecha_vencimiento) {
+        throw new Error("Falta la fecha de vencimiento de la garantía.");
+      }
+
+      const r = await db
+        .from("garantias")
+        .insert(warrantyPayload);
+
+      resultOrThrow(r, "No se pudo guardar la garantía");
+    }
+
+    // =====================================================
+    // 5. GASTOS
+    // =====================================================
+    await syncMoneyRecords(
+      "expenses",
+      "gastos",
+      previous,
+      next,
+      item => ({
+        registrado_por: currentUser.id,
+        fecha: item.date || today(),
+        concepto: item.concept,
+        valor: item.amount,
+        observaciones: item.note || null,
+        medio_pago: item.paymentMethod || null
+      })
+    );
+
+    // =====================================================
+    // 6. NÓMINA
+    // =====================================================
+    await syncMoneyRecords(
+      "payroll",
+      "nomina",
+      previous,
+      next,
+      item => ({
+        empleado_id: item.employeeId || null,
+        registrado_por: currentUser.id,
+        periodo_inicio: item.periodStart || item.date || today(),
+        periodo_fin: item.periodEnd || item.date || today(),
+        fecha_pago: item.date || today(),
+        concepto: item.concept,
+        valor: item.amount,
+        medio_pago: item.paymentMethod || null
+      })
+    );
+
+    // =====================================================
+    // 7. ARRIENDO
+    // =====================================================
+    await syncMoneyRecords(
+      "rent",
+      "arriendos",
+      previous,
+      next,
+      item => ({
+        registrado_por: currentUser.id,
+        fecha_pago: item.date || today(),
+        periodo: item.period || item.date || today(),
+        concepto: item.concept,
+        valor: item.amount,
+        observaciones: item.note || null,
+        medio_pago: item.paymentMethod || null
+      })
+    );
+}
+
 
   async function syncMoneyRecords(key, tableName, previous, next, mapRecord) {
     const oldIds = new Set((previous[key]||[]).map(x => x.id));
@@ -1151,6 +1458,16 @@ $("shareClosing").addEventListener("click", async () => {
             <input id="incomingSupplier" maxlength="100">
           </div>
 
+<div class="field">
+  <label for="incomingPaymentMethod">Medio de pago</label>
+  <select id="incomingPaymentMethod" required>
+    <option value="">Selecciona un medio de pago</option>
+    ${PAYMENT_METHODS.map(method => `
+      <option value="${method}">${method}</option>
+    `).join("")}
+  </select>
+</div>
+
           <div class="field wide">
             <label for="incomingNote">Observaciones</label>
             <input id="incomingNote" maxlength="180">
@@ -1197,7 +1514,11 @@ $("shareClosing").addEventListener("click", async () => {
 
       const qty = Number($("incomingQty").value);
       const unitValue = Number($("incomingUnitValue").value);
+const paymentMethod = $("incomingPaymentMethod").value;
 
+if (!PAYMENT_METHODS.includes(paymentMethod)) {
+  return notify("Selecciona un medio de pago válido.", "error");
+}
       if (
         !product ||
         !Number.isInteger(qty) ||
@@ -1710,23 +2031,137 @@ $("shareClosing").addEventListener("click", async () => {
     );
   }
 
-  function renderEmployees() {
-    if (role !== "administrador") return notify("Acceso restringido.", "error");
-    const rows = state.employees.map(employee => `
-      <tr>
-        <td>${escapeHTML(employee.name)}</td>
-        <td>${escapeHTML(employee.username || "—")}</td>
-        <td>${escapeHTML(employee.email || "—")}</td>
-        <td>${escapeHTML(employee.role || "—")}</td>
-        <td>${state.sales.filter(sale => sale.employeeId === employee.id).length}</td>
-      </tr>
-    `).join("");
-    $("workspaceContent").innerHTML = `
-      <h3>Usuarios registrados</h3>
-      <p class="muted">Esta lista se consulta desde la tabla perfiles. Las cuentas deben crearse mediante el flujo seguro de autenticación; no se crean perfiles ficticios desde este menú.</p>
-      ${table(["Nombre", "Código", "Correo", "Rol", "Líneas de venta"], rows, "No hay perfiles visibles para esta cuenta.")}
-    `;
+ 
+async function renderEmployees() {
+  if (role !== "administrador") {
+    return notify("Acceso restringido.", "error");
   }
+
+  const rows = state.employees.map(employee => `
+    <tr>
+      <td>${escapeHTML(employee.name)}</td>
+      <td>${escapeHTML(employee.username || "—")}</td>
+      <td>${escapeHTML(employee.email || "—")}</td>
+      <td>${escapeHTML(employee.role || "—")}</td>
+      <td>
+        ${state.sales.filter(sale => sale.employeeId === employee.id).length}
+      </td>
+      <td>
+        <span style="color:${employee.active ? "#16803c" : "#c62828"}">
+          ${employee.active ? "Activo" : "Inactivo"}
+        </span>
+      </td>
+      <td>
+        ${
+          employee.role === "empleado"
+            ? `<button type="button"
+                 class="employee-toggle"
+                 data-code="${escapeHTML(employee.username || "")}"
+                 data-active="${employee.active ? "false" : "true"}">
+                 ${employee.active ? "Desactivar" : "Activar"}
+               </button>`
+            : "—"
+        }
+      </td>
+    </tr>
+  `).join("");
+
+  $("workspaceContent").innerHTML = `
+    <h3>Administrar empleados</h3>
+    <p class="muted">
+      Crea cuentas de empleados y administra su acceso a Phone Planet.
+    </p>
+
+    <form id="formCrearEmpleado">
+      <label for="empleadoNombre">Nombre completo</label>
+      <input id="empleadoNombre" name="nombre"
+        type="text" maxlength="120" required>
+
+      <label for="empleadoEmail">Correo electrónico</label>
+      <input id="empleadoEmail" name="email"
+        type="email" maxlength="254" required>
+
+      <label for="empleadoContrasena">Contraseña inicial</label>
+      <input id="empleadoContrasena" name="contrasena"
+        type="password" minlength="8"
+        autocomplete="new-password" required>
+
+      <button type="submit">Crear empleado</button>
+    </form>
+
+    <h3>Usuarios registrados</h3>
+
+    ${table(
+      ["Nombre", "Código", "Correo", "Rol", "Líneas de venta", "Estado", "Acciones"],
+      rows,
+      "No hay perfiles visibles para esta cuenta."
+    )}
+  `;
+
+  const form = $("formCrearEmpleado");
+
+  form.addEventListener("submit", async event => {
+    event.preventDefault();
+
+    const boton = form.querySelector('button[type="submit"]');
+    boton.disabled = true;
+
+    try {
+      const resultado = await administrarEmpleado({
+        accion: "crear",
+        nombre: $("empleadoNombre").value.trim(),
+        email: $("empleadoEmail").value.trim(),
+        contrasena: $("empleadoContrasena").value
+      });
+
+      await loadSupabaseState();
+      await renderEmployees();
+
+      notify(
+        `Empleado creado. Código: ${resultado.empleado.codigo_usuario}`,
+        "success"
+      );
+    } catch (error) {
+      notify(error.message || "No se pudo crear el empleado.", "error");
+      boton.disabled = false;
+    }
+  });
+
+  $("workspaceContent")
+    .querySelectorAll(".employee-toggle")
+    .forEach(boton => {
+      boton.addEventListener("click", async () => {
+        const codigo = boton.dataset.code;
+        const activo = boton.dataset.active === "true";
+
+        if (!confirm(
+          `¿Deseas ${activo ? "activar" : "desactivar"} la cuenta ${codigo}?`
+        )) return;
+
+        boton.disabled = true;
+
+        try {
+          await administrarEmpleado({
+            accion: "cambiar_estado",
+            codigo_usuario: codigo,
+            activo
+          });
+
+          await loadSupabaseState();
+          await renderEmployees();
+
+          notify(
+            `Cuenta ${codigo} ${activo ? "activada" : "desactivada"}.`,
+            "success"
+          );
+        } catch (error) {
+          notify(error.message || "No se pudo cambiar el estado.", "error");
+          boton.disabled = false;
+        }
+      });
+    });
+}
+
 
   function renderIncomingHistory() {
     if (role !== "administrador") {
