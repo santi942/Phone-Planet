@@ -2161,50 +2161,63 @@ async function renderEmployees() {
 
   const form = $("formCrearEmpleado");
 
-  form.addEventListener("submit", async event => {
-    event.preventDefault();
+  
+form.addEventListener("submit", async event => {
+  event.preventDefault();
 
-    const boton = form.querySelector('button[type="submit"]');
+  const boton = form.querySelector('button[type="submit"]');
 
-    if (boton.disabled) return;
+  if (boton.disabled) return;
 
-    const textoOriginal = boton.innerHTML;
+  const textoOriginal = boton.innerHTML;
+  boton.disabled = true;
+  boton.innerHTML = "Creando cuenta...";
 
-    boton.disabled = true;
-    boton.innerHTML = "Creando cuenta...";
+  try {
+    const nombre = $("empleadoNombre").value.trim();
+    const email = $("empleadoEmail").value.trim();
+    const contrasena = $("empleadoContrasena").value;
 
-    try {
-      const resultado = await administrarEmpleado({
-        accion: "crear",
-        nombre: $("empleadoNombre").value.trim(),
-        email: $("empleadoEmail").value.trim(),
-        contrasena: $("empleadoContrasena").value
-      });
-
-      const codigo =
-        resultado?.empleado?.codigo_usuario ||
-        resultado?.codigo_usuario ||
-        resultado?.codigo;
-
-      await loadSupabaseState();
-      await renderEmployees();
-
-      notify(
-        codigo
-          ? `Empleado creado correctamente. Código: ${codigo}`
-          : "Empleado creado correctamente.",
-        "success"
+    if (!nombre || !email || contrasena.length < 8) {
+      throw new Error(
+        "Completa los campos y usa una contraseña de mínimo 8 caracteres."
       );
-    } catch (error) {
-      notify(
-        error.message || "No se pudo crear el empleado.",
-        "error"
-      );
-
-      boton.disabled = false;
-      boton.innerHTML = textoOriginal;
     }
-  });
+
+    const resultado = await administrarEmpleado({
+      accion: "crear",
+      nombre,
+      email,
+      contrasena
+    });
+
+    const codigo =
+      resultado?.empleado?.codigo_usuario ||
+      resultado?.codigo_usuario ||
+      resultado?.codigo;
+
+    await loadSupabaseState();
+    await renderEmployees();
+
+    notify(
+      codigo
+        ? `Empleado creado correctamente. Código: ${codigo}`
+        : "Empleado creado correctamente.",
+      "success"
+    );
+  } catch (error) {
+    console.error("Error al crear empleado:", error);
+
+    notify(
+      error.message || "No se pudo crear el empleado.",
+      "error"
+    );
+
+    boton.disabled = false;
+    boton.innerHTML = textoOriginal;
+  }
+});
+
 
   $("workspaceContent")
     .querySelectorAll(".employee-toggle")
