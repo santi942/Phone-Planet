@@ -795,3 +795,218 @@ footer {
     animation-iteration-count: 1 !important;
   }
 }
+
+
+/* ==========================================
+   PHONE PLANET - ADMINISTRACIÓN DE EMPLEADOS
+   ========================================== */
+
+.employee-panel {
+  margin: 22px 0 32px;
+  padding: 26px;
+  background: #ffffff;
+  border: 1px solid var(--border, #DCE4ED);
+  border-radius: 16px;
+  box-shadow: var(--shadow, 0 5px 20px rgba(35,55,80,.055));
+}
+
+.employee-panel__heading {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 25px;
+}
+
+.employee-panel__icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  border-radius: 13px;
+  background: #E8F0FA;
+  font-size: 22px;
+}
+
+.employee-panel__heading h3,
+.employee-list-heading h3 {
+  margin: 0 0 5px;
+  color: #2B4058;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.employee-panel__heading p,
+.employee-list-heading p {
+  margin: 0;
+  color: var(--muted, #68788C);
+  font-size: 13px;
+}
+
+/* Formulario */
+
+.employee-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.employee-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+
+.employee-field--full {
+  grid-column: 1 / -1;
+}
+
+.employee-field label {
+  color: #50647C;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.employee-field input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 45px;
+  padding: 11px 13px;
+  border: 1px solid #CFD9E5;
+  border-radius: 9px;
+  background: #FFFFFF;
+  color: #2B3E53;
+  font: inherit;
+  font-size: 13px;
+  transition: border-color .2s, box-shadow .2s;
+}
+
+.employee-field input::placeholder {
+  color: #98A5B5;
+}
+
+.employee-field input:focus {
+  outline: none;
+  border-color: var(--blue, #3567A8);
+  box-shadow: 0 0 0 3px rgba(53, 103, 168, .12);
+}
+
+.employee-field small {
+  color: var(--muted, #68788C);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* Botón de creación */
+
+.employee-form__actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 3px;
+}
+
+.employee-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 11px 19px;
+  border: 1px solid var(--blue, #3567A8);
+  border-radius: 9px;
+  background: var(--blue, #3567A8);
+  color: #FFFFFF;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .2s, transform .2s, opacity .2s;
+}
+
+.employee-submit:hover {
+  background: var(--blue-hover, #28558F);
+}
+
+.employee-submit:active {
+  transform: translateY(1px);
+}
+
+.employee-submit:disabled {
+  opacity: .65;
+  cursor: wait;
+}
+
+/* Lista de usuarios */
+
+.employee-list-section {
+  margin-top: 28px;
+}
+
+.employee-list-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 15px;
+}
+
+.employee-count {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--border, #DCE4ED);
+  border-radius: 999px;
+  background: #F1F5FA;
+  color: #385675;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.employee-toggle {
+  padding: 7px 10px;
+  border: 1px solid #CCD8E6;
+  border-radius: 7px;
+  background: #F7F9FC;
+  color: #385675;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.employee-toggle:hover {
+  border-color: #8EAACB;
+  background: #EAF0F8;
+}
+
+.employee-toggle:disabled {
+  opacity: .6;
+  cursor: wait;
+}
+
+/* Adaptación a celulares */
+
+@media (max-width: 650px) {
+  .employee-panel {
+    padding: 18px;
+  }
+
+  .employee-form {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 17px;
+  }
+
+  .employee-field--full,
+  .employee-form__actions {
+    grid-column: auto;
+  }
+
+  .employee-form__actions,
+  .employee-submit {
+    width: 100%;
+  }
+
+  .employee-list-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
