@@ -2032,6 +2032,7 @@ if (!PAYMENT_METHODS.includes(paymentMethod)) {
   }
 
  
+
 async function renderEmployees() {
   if (role !== "administrador") {
     return notify("Acceso restringido.", "error");
@@ -2044,7 +2045,9 @@ async function renderEmployees() {
       <td>${escapeHTML(employee.email || "—")}</td>
       <td>${escapeHTML(employee.role || "—")}</td>
       <td>
-        ${state.sales.filter(sale => sale.employeeId === employee.id).length}
+        ${state.sales.filter(
+          sale => sale.employeeId === employee.id
+        ).length}
       </td>
       <td>
         <span style="color:${employee.active ? "#16803c" : "#c62828"}">
@@ -2054,7 +2057,8 @@ async function renderEmployees() {
       <td>
         ${
           employee.role === "empleado"
-            ? `<button type="button"
+            ? `<button
+                 type="button"
                  class="employee-toggle"
                  data-code="${escapeHTML(employee.username || "")}"
                  data-active="${employee.active ? "false" : "true"}">
@@ -2067,35 +2071,92 @@ async function renderEmployees() {
   `).join("");
 
   $("workspaceContent").innerHTML = `
-    <h3>Administrar empleados</h3>
-    <p class="muted">
-      Crea cuentas de empleados y administra su acceso a Phone Planet.
-    </p>
+    <section class="employee-panel">
+      <div class="employee-panel__heading">
+        <div class="employee-panel__icon" aria-hidden="true">👤</div>
+        <div>
+          <h3>Crear cuenta de empleado</h3>
+          <p>Registra un nuevo integrante del equipo de Phone Planet.</p>
+        </div>
+      </div>
 
-    <form id="formCrearEmpleado">
-      <label for="empleadoNombre">Nombre completo</label>
-      <input id="empleadoNombre" name="nombre"
-        type="text" maxlength="120" required>
+      <form id="formCrearEmpleado" class="employee-form">
+        <div class="employee-field employee-field--full">
+          <label for="empleadoNombre">Nombre completo</label>
+          <input
+            id="empleadoNombre"
+            name="nombre"
+            type="text"
+            maxlength="120"
+            placeholder="Ej. María Rodríguez"
+            autocomplete="name"
+            required
+          >
+        </div>
 
-      <label for="empleadoEmail">Correo electrónico</label>
-      <input id="empleadoEmail" name="email"
-        type="email" maxlength="254" required>
+        <div class="employee-field">
+          <label for="empleadoEmail">Correo electrónico</label>
+          <input
+            id="empleadoEmail"
+            name="email"
+            type="email"
+            maxlength="254"
+            placeholder="empleado@ejemplo.com"
+            autocomplete="email"
+            required
+          >
+        </div>
 
-      <label for="empleadoContrasena">Contraseña inicial</label>
-      <input id="empleadoContrasena" name="contrasena"
-        type="password" minlength="8"
-        autocomplete="new-password" required>
+        <div class="employee-field">
+          <label for="empleadoContrasena">Contraseña inicial</label>
+          <input
+            id="empleadoContrasena"
+            name="contrasena"
+            type="password"
+            minlength="8"
+            placeholder="Mínimo 8 caracteres"
+            autocomplete="new-password"
+            required
+          >
+          <small>Comparte la contraseña inicial de forma segura.</small>
+        </div>
 
-      <button type="submit">Crear empleado</button>
-    </form>
+        <div class="employee-form__actions">
+          <button type="submit" class="employee-submit">
+            <span aria-hidden="true">＋</span>
+            Crear empleado
+          </button>
+        </div>
+      </form>
+    </section>
 
-    <h3>Usuarios registrados</h3>
+    <section class="employee-list-section">
+      <div class="employee-list-heading">
+        <div>
+          <h3>Usuarios registrados</h3>
+          <p class="muted">
+            Consulta los códigos, roles y estados de acceso.
+          </p>
+        </div>
+        <span class="employee-count">
+          ${state.employees.length} usuarios
+        </span>
+      </div>
 
-    ${table(
-      ["Nombre", "Código", "Correo", "Rol", "Líneas de venta", "Estado", "Acciones"],
-      rows,
-      "No hay perfiles visibles para esta cuenta."
-    )}
+      ${table(
+        [
+          "Nombre",
+          "Código",
+          "Correo",
+          "Rol",
+          "Líneas de venta",
+          "Estado",
+          "Acciones"
+        ],
+        rows,
+        "No hay perfiles visibles para esta cuenta."
+      )}
+    </section>
   `;
 
   const form = $("formCrearEmpleado");
@@ -2104,7 +2165,13 @@ async function renderEmployees() {
     event.preventDefault();
 
     const boton = form.querySelector('button[type="submit"]');
+
+    if (boton.disabled) return;
+
+    const textoOriginal = boton.innerHTML;
+
     boton.disabled = true;
+    boton.innerHTML = "Creando cuenta...";
 
     try {
       const resultado = await administrarEmpleado({
@@ -2114,16 +2181,28 @@ async function renderEmployees() {
         contrasena: $("empleadoContrasena").value
       });
 
+      const codigo =
+        resultado?.empleado?.codigo_usuario ||
+        resultado?.codigo_usuario ||
+        resultado?.codigo;
+
       await loadSupabaseState();
       await renderEmployees();
 
       notify(
-        `Empleado creado. Código: ${resultado.empleado.codigo_usuario}`,
+        codigo
+          ? `Empleado creado correctamente. Código: ${codigo}`
+          : "Empleado creado correctamente.",
         "success"
       );
     } catch (error) {
-      notify(error.message || "No se pudo crear el empleado.", "error");
+      notify(
+        error.message || "No se pudo crear el empleado.",
+        "error"
+      );
+
       boton.disabled = false;
+      boton.innerHTML = textoOriginal;
     }
   });
 
@@ -2136,7 +2215,9 @@ async function renderEmployees() {
 
         if (!confirm(
           `¿Deseas ${activo ? "activar" : "desactivar"} la cuenta ${codigo}?`
-        )) return;
+        )) {
+          return;
+        }
 
         boton.disabled = true;
 
@@ -2151,11 +2232,17 @@ async function renderEmployees() {
           await renderEmployees();
 
           notify(
-            `Cuenta ${codigo} ${activo ? "activada" : "desactivada"}.`,
+            `Cuenta ${codigo} ${
+              activo ? "activada" : "desactivada"
+            }.`,
             "success"
           );
         } catch (error) {
-          notify(error.message || "No se pudo cambiar el estado.", "error");
+          notify(
+            error.message || "No se pudo cambiar el estado.",
+            "error"
+          );
+
           boton.disabled = false;
         }
       });
