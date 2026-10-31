@@ -122,6 +122,13 @@
       title: "Historial de arriendo",
       desc: "Registra pagos de arriendo.",
       roles: ["administrador"]
+    },
+    {
+      id: "monthClose",
+      icon: "🗓️",
+      title: "Cierre de mes",
+      desc: "Resumen mensual por medio de pago: ventas, pagos y sobrante que pasa al mes siguiente.",
+      roles: ["administrador"]
     }
   ];
 
@@ -146,6 +153,22 @@
     if (result.error) throw new Error(`${label}: ${result.error.message}`);
     return result.data;
   };
+
+  // Lee una tabla con su columna medio_pago. Si todavía no existe (falta el SQL),
+  // se consulta sin ella para no romper el sistema.
+  let paymentColumnsMissing = false;
+
+  async function selectWithPayment(table, columns, orderColumn) {
+    const run = cols => db.from(table).select(cols).order(orderColumn, { ascending: false });
+    const first = await run(`${columns},medio_pago`);
+
+    if (first.error && first.error.code === "42703") {
+      paymentColumnsMissing = true;
+      return run(columns);
+    }
+
+    return first;
+  }
 
   async function loadSupabaseState() {
     if (!db) throw new Error("No se encontró window.clienteSupabase. Revisa que SUPABASE.js se cargue antes de MENU.js.");
@@ -172,7 +195,7 @@
   .order("nombre"),
       db.from("ventas").select("id,empleado_id,empleado_nombre,fecha,medio_pago,nota,subtotal,descuento,total,creado_en").order("fecha", { ascending: false }),
       db.from("detalle_ventas").select("id,venta_id,producto_id,codigo_producto,nombre_producto,cantidad,precio_original,descuento_unitario,precio_unitario,total_linea"),
-      db.from("entradas_mercancia").select("id,producto_id,registrado_por,fecha,cantidad,costo_unitario,costo_total,proveedor,observaciones,creado_en").order("fecha", { ascending: false })
+      selectWithPayment("entradas_mercancia", "id,producto_id,registrado_por,fecha,cantidad,costo_unitario,costo_total,proveedor,observaciones,creado_en", "fecha")
     ]);
     // Si todavía no se ejecutó el SQL que agrega ventas.empleado_nombre,
     // se consulta sin esa columna para no romper el sistema.
@@ -230,7 +253,7 @@
     state.incoming = incoming.map(e => {
       const product = products.find(p => p.id === e.producto_id);
       const profile = profiles.find(p => p.id === e.registrado_por);
-      return { id:e.id, productId:e.producto_id, productName:product?.nombre || "Producto", code:product?.codigo || "—", qty:Number(e.cantidad)||0, unitValue:Number(e.costo_unitario)||0, totalCost:Number(e.costo_total)||0, date:e.fecha, supplier:e.proveedor || "", note:e.observaciones || "", employee:profile?.nombre || "Usuario", createdAt:e.creado_en };
+      return { id:e.id, productId:e.producto_id, productName:product?.nombre || "Producto", code:product?.codigo || "—", qty:Number(e.cantidad)||0, unitValue:Number(e.costo_unitario)||0, totalCost:Number(e.costo_total)||0, date:e.fecha, supplier:e.proveedor || "", note:e.observaciones || "", employee:profile?.nombre || "Usuario", paymentMethod:e.medio_pago || "", createdAt:e.creado_en };
     });
 
     state.warranties = warranties.map(w => ({
@@ -253,12 +276,12 @@
 
     if (role === "administrador") {
       const [expensesR, payrollR, rentR] = await Promise.all([
-        db.from("gastos").select("id,registrado_por,fecha,concepto,valor,observaciones,creado_en").order("fecha", { ascending:false }),
-        db.from("nomina").select("id,empleado_id,registrado_por,periodo_inicio,periodo_fin,fecha_pago,concepto,valor,creado_en").order("fecha_pago", { ascending:false }),
-        db.from("arriendos").select("id,registrado_por,fecha_pago,periodo,concepto,valor,observaciones,creado_en").order("fecha_pago", { ascending:false })
+        selectWithPayment("gastos", "id,registrado_por,fecha,concepto,valor,observaciones,creado_en", "fecha"),
+        selectWithPayment("nomina", "id,empleado_id,registrado_por,periodo_inicio,periodo_fin,fecha_pago,concepto,valor,creado_en", "fecha_pago"),
+        selectWithPayment("arriendos", "id,registrado_por,fecha_pago,periodo,concepto,valor,observaciones,creado_en", "fecha_pago")
       ]);
-      state.expenses = resultOrThrow(expensesR, "No se pudieron cargar los gastos").map(x => ({ id:x.id, date:x.fecha, concept:x.concepto, amount:Number(x.valor)||0, note:x.observaciones||"", createdAt:x.creado_en }));
-      state.payroll = resultOrThrow(payrollR, "No se pudo cargar la nómina").map(x => ({ id:x.id, date:x.fecha_pago, concept:x.concepto, amount:Number(x.valor)||0, employeeId:x.empleado_id, periodStart:x.periodo_inicio, periodEnd:x.periodo_fin, createdAt:x.creado_en }));
+      state.expenses = resultOrThrow(expensesR, "No se pudieron cargar los gastos").map(x => ({ id:x.id, date:x.fecha, concept:x.concepto, amount:Number(x.valor)||0, note:x.observaciones||"", paymentMethod:x.medio_pago||"", createdAt:x.creado_en }));
+      state.payroll = resultOrThrow(payrollR, "No se pudo cargar la nómina").map(x => ({ id:x.id, date:x.fecha_pago, concept:x.concepto, amount:Number(x.valor)||0, employeeId:x.empleado_id, periodStart:x.periodo_inicio, periodEnd:x.periodo_fin, paymentMethod:x.medio_pago||"", createdAt:x.creado_en }));
       // Catálogo de la tienda web (independiente del stock). Si todavía no existe
       // la tabla, el resto del sistema sigue funcionando.
       const catalogR = await db
@@ -286,7 +309,7 @@
         }));
       }
 
-      state.rent = resultOrThrow(rentR, "No se pudo cargar el arriendo").map(x => ({ id:x.id, date:x.fecha_pago, period:x.periodo, concept:x.concepto, amount:Number(x.valor)||0, note:x.observaciones||"", createdAt:x.creado_en }));
+      state.rent = resultOrThrow(rentR, "No se pudo cargar el arriendo").map(x => ({ id:x.id, date:x.fecha_pago, period:x.periodo, concept:x.concepto, amount:Number(x.valor)||0, note:x.observaciones||"", paymentMethod:x.medio_pago||"", createdAt:x.creado_en }));
     }
 
     persistedState = clone(state);
@@ -798,6 +821,7 @@ const r = await db.rpc("registrar_entrada_mercancia", {
       warranties: renderWarranties,
       stock: renderStock,
       catalog: renderCatalog,
+      monthClose: renderMonthClose,
       salesHistory: renderSalesHistory,
       employees: renderEmployees,
       incomingHistory: renderIncomingHistory,
@@ -1490,7 +1514,7 @@ $("shareClosing").addEventListener("click", async () => {
   }
 
   // Convierte un elemento en PNG y lo comparte (o lo descarga).
-  async function shareElementAsImage(element, filename, title, text) {
+  async function shareElementAsImage(element, filename, title, text, forceDownload = false) {
     await loadHtml2Canvas();
 
     const canvas = await html2canvas(element, {
@@ -1508,7 +1532,7 @@ $("shareClosing").addEventListener("click", async () => {
 
     const file = new File([blob], filename, { type: "image/png" });
 
-    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+    if (!forceDownload && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
         await navigator.share({ title, text, files: [file] });
         return "compartida";
@@ -1529,6 +1553,352 @@ $("shareClosing").addEventListener("click", async () => {
 
     return "descargada";
   }
+
+  // =====================================================
+  // CIERRE DE MES
+  // =====================================================
+  const CLOSE_METHODS = [...PAYMENT_METHODS, "Sin medio"];
+  let closeMonth = null;
+
+  const methodKey = method => PAYMENT_METHODS.includes(method) ? method : "Sin medio";
+  const emptyByMethod = () => Object.fromEntries(CLOSE_METHODS.map(key => [key, 0]));
+  const totalOf = values => CLOSE_METHODS.reduce((sum, key) => sum + values[key], 0);
+
+  function shiftMonth(month, delta) {
+    const [year, number] = month.split("-").map(Number);
+    const date = new Date(year, number - 1 + delta, 1);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+  }
+
+  function monthLabel(month) {
+    const [year, number] = month.split("-").map(Number);
+    const text = new Date(year, number - 1, 1).toLocaleDateString("es-CO", { month: "long", year: "numeric" });
+    return text.charAt(0).toUpperCase() + text.slice(1);
+  }
+
+  // Saldo anterior = todo lo vendido menos todo lo pagado ANTES del mes, por medio de pago.
+  // Así el sobrante de cada mes pasa solo al siguiente, sin guardar nada aparte.
+  function computeMonthClose(month) {
+    const start = `${month}-01`;
+    const end = `${shiftMonth(month, 1)}-01`;
+
+    const sources = {
+      sales: state.sales.map(item => ({ date: item.date, method: item.paymentMethod, amount: item.total })),
+      merchandise: state.incoming.map(item => ({ date: item.date, method: item.paymentMethod, amount: entryTotal(item) })),
+      expenses: state.expenses.map(item => ({ date: item.date, method: item.paymentMethod, amount: item.amount })),
+      payroll: state.payroll.map(item => ({ date: item.date, method: item.paymentMethod, amount: item.amount })),
+      rent: state.rent.map(item => ({ date: item.date, method: item.paymentMethod, amount: item.amount }))
+    };
+
+    const rows = {
+      sales: emptyByMethod(),
+      merchandise: emptyByMethod(),
+      expenses: emptyByMethod(),
+      payroll: emptyByMethod(),
+      rent: emptyByMethod()
+    };
+    const opening = emptyByMethod();
+
+    Object.entries(sources).forEach(([kind, list]) => {
+      list.forEach(item => {
+        const date = String(item.date || "").slice(0, 10);
+        const amount = Number(item.amount) || 0;
+        if (!date || !amount) return;
+
+        const key = methodKey(item.method);
+        const sign = kind === "sales" ? 1 : -1;
+
+        if (date < start) opening[key] += sign * amount;
+        else if (date < end) rows[kind][key] += amount;
+      });
+    });
+
+    const available = emptyByMethod();
+    const paid = emptyByMethod();
+    const leftover = emptyByMethod();
+
+    CLOSE_METHODS.forEach(key => {
+      available[key] = opening[key] + rows.sales[key];
+      paid[key] = rows.merchandise[key] + rows.expenses[key] + rows.payroll[key] + rows.rent[key];
+      leftover[key] = available[key] - paid[key];
+    });
+
+    const lines = [
+      { label: "Saldo del mes anterior", values: opening, kind: "normal" },
+      { label: "Ventas del mes (total ingreso)", values: rows.sales, kind: "strong" },
+      { label: "Total disponible (saldo anterior + ventas)", values: available, kind: "total" },
+      { label: "Pagos del mes", kind: "section" },
+      { label: "Mercancía", values: rows.merchandise, kind: "normal" },
+      { label: "Gastos", values: rows.expenses, kind: "normal" },
+      { label: "Nómina", values: rows.payroll, kind: "normal" },
+      { label: "Arriendo", values: rows.rent, kind: "normal" },
+      { label: "Total pagado", values: paid, kind: "total" },
+      { label: "Sobrante (pasa al mes siguiente)", values: leftover, kind: "result" }
+    ];
+
+    // La columna "Sin medio" solo aparece si hay registros sin medio de pago.
+    const showUnknown = lines.some(line => line.values && Math.abs(line.values["Sin medio"]) > 0);
+    const methods = showUnknown ? CLOSE_METHODS : PAYMENT_METHODS;
+
+    return { month, lines, methods, showUnknown, totals: { paid: totalOf(paid), income: totalOf(rows.sales), leftover: totalOf(leftover) } };
+  }
+
+  function monthCloseHTML(data) {
+    const generated = new Date().toLocaleString("es-CO", { dateStyle: "short", timeStyle: "short" });
+
+    const cells = line => data.methods.map(key => {
+      const value = line.values[key];
+      return `<td class="num ${value < 0 ? "neg" : ""}">${money(value)}</td>`;
+    }).join("");
+
+    const body = data.lines.map(line => {
+      if (line.kind === "section") {
+        return `<tr class="close-section"><td colspan="${data.methods.length + 2}">${escapeHTML(line.label)}</td></tr>`;
+      }
+
+      const total = totalOf(line.values);
+      return `
+        <tr class="close-${line.kind}">
+          <td>${escapeHTML(line.label)}</td>
+          ${cells(line)}
+          <td class="num ${total < 0 ? "neg" : ""}"><strong>${money(total)}</strong></td>
+        </tr>
+      `;
+    }).join("");
+
+    return `
+      <section class="close-report">
+        <div class="close-head">
+          <h2>${escapeHTML(LOCAL_NAME)}</h2>
+          <h3>Cierre de mes · ${escapeHTML(monthLabel(data.month))}</h3>
+          <p>Generado: ${escapeHTML(generated)}</p>
+        </div>
+
+        <table class="close-table">
+          <thead>
+            <tr>
+              <th>Concepto</th>
+              ${data.methods.map(key => `<th>${escapeHTML(key === "Sin medio" ? "Sin medio registrado" : key)}</th>`).join("")}
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody>${body}</tbody>
+        </table>
+
+        <div class="close-summary">
+          <div><span>Total ingreso del mes</span><strong>${money(data.totals.income)}</strong></div>
+          <div><span>Total pagado</span><strong>${money(data.totals.paid)}</strong></div>
+          <div class="${data.totals.leftover < 0 ? "neg" : "ok"}">
+            <span>${data.totals.leftover < 0 ? "Faltante" : "Sobrante"}</span>
+            <strong>${money(data.totals.leftover)}</strong>
+          </div>
+        </div>
+
+        <p class="close-note">
+          El sobrante de este mes pasa automáticamente al mes siguiente como saldo anterior.
+          ${data.showUnknown ? "<br>Hay registros sin medio de pago (anteriores a este control); se muestran aparte." : ""}
+        </p>
+      </section>
+    `;
+  }
+
+  function exportMonthCloseExcel(data) {
+    const methodCount = data.methods.length;
+    const headers = ["Concepto", ...data.methods.map(key => key === "Sin medio" ? "Sin medio registrado" : key), "Total"];
+
+    const rows = [
+      [{ v: `${LOCAL_NAME} - Cierre de mes`, s: "title" }],
+      [{ v: monthLabel(data.month), s: "bold" }],
+      [],
+      headers.map(text => ({ v: text, s: "header" }))
+    ];
+
+    data.lines.forEach(line => {
+      if (line.kind === "section") {
+        rows.push([
+          { v: line.label, s: "section" },
+          ...Array.from({ length: methodCount + 1 }, () => ({ v: "", s: "section" }))
+        ]);
+        return;
+      }
+
+      const labelStyle = line.kind === "result" ? "resultLabel" : (line.kind === "normal" ? undefined : "bold");
+      const moneyStyle = line.kind === "result" ? "result" : (line.kind === "normal" ? "money" : "moneyBold");
+
+      rows.push([
+        labelStyle ? { v: line.label, s: labelStyle } : line.label,
+        ...data.methods.map(key => ({ v: line.values[key], s: moneyStyle })),
+        { v: totalOf(line.values), s: line.kind === "result" ? "result" : "moneyBold" }
+      ]);
+    });
+
+    rows.push([], ["El sobrante de este mes pasa automáticamente al mes siguiente como saldo anterior."]);
+
+    downloadExcel(`PhonePlanet_Cierre_${data.month}.xlsx`, [
+      {
+        name: `Cierre ${data.month}`,
+        widths: [44, ...data.methods.map(() => 22), 20],
+        rows
+      }
+    ]);
+  }
+
+  async function downloadMonthCloseImage(data) {
+    const holder = document.createElement("div");
+    holder.className = "close-image-holder";
+    holder.innerHTML = monthCloseHTML(data);
+    document.body.appendChild(holder);
+
+    try {
+      await shareElementAsImage(
+        holder.firstElementChild,
+        `PhonePlanet_Cierre_${data.month}.png`,
+        `Cierre de mes - ${monthLabel(data.month)}`,
+        "Cierre de mes de Phone Planet",
+        true
+      );
+      notify("Imagen del cierre descargada.", "success");
+    } catch (error) {
+      console.error("Error generando la imagen del cierre:", error);
+      notify("No se pudo generar la imagen del cierre.", "error");
+    } finally {
+      holder.remove();
+    }
+  }
+
+  function renderMonthClose() {
+    if (role !== "administrador") {
+      return notify("Acceso restringido.", "error");
+    }
+
+    if (!closeMonth) closeMonth = today().slice(0, 7);
+
+    $("workspaceContent").innerHTML = `
+      <div class="toolbar">
+        <button class="btn btn-ghost" id="closePrev" type="button">← Mes anterior</button>
+
+        <div class="field">
+          <label for="closeMonthInput">Mes (AAAA-MM)</label>
+          <input id="closeMonthInput" type="month" value="${closeMonth}" placeholder="2026-10" maxlength="7">
+        </div>
+
+        <button class="btn btn-ghost" id="closeNext" type="button">Mes siguiente →</button>
+        <button class="btn btn-primary" id="closeImage" type="button">Descargar imagen</button>
+        <button class="btn btn-primary" id="closeExcel" type="button">Descargar Excel</button>
+      </div>
+
+      ${paymentColumnsMissing ? `
+        <p class="notice error" style="display:block">
+          Faltan columnas de medio de pago en Supabase. Ejecuta el script cierre_mes.sql
+          para que el cierre separe mercancía, gastos, nómina y arriendo por medio de pago.
+        </p>` : ""}
+
+      <div id="closeView"></div>
+    `;
+
+    const draw = () => {
+      $("closeView").innerHTML = `<div class="table-wrap">${monthCloseHTML(computeMonthClose(closeMonth))}</div>`;
+    };
+
+    const go = month => {
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return notify("Escribe el mes como AAAA-MM, por ejemplo 2026-10.", "error");
+      closeMonth = month;
+      $("closeMonthInput").value = month;
+      notify("");
+      draw();
+    };
+
+    $("closePrev").addEventListener("click", () => go(shiftMonth(closeMonth, -1)));
+    $("closeNext").addEventListener("click", () => go(shiftMonth(closeMonth, 1)));
+    $("closeMonthInput").addEventListener("change", () => go($("closeMonthInput").value.trim()));
+    $("closeExcel").addEventListener("click", () => exportMonthCloseExcel(computeMonthClose(closeMonth)));
+
+    $("closeImage").addEventListener("click", async () => {
+      const button = $("closeImage");
+      button.disabled = true;
+      await downloadMonthCloseImage(computeMonthClose(closeMonth));
+      button.disabled = false;
+    });
+
+    draw();
+  }
+
+  // =====================================================
+  // EXCEL: descargas y ayudantes
+  // =====================================================
+  function excelAvailable() {
+    if (!window.PhonePlanetExcel) {
+      notify("No se cargó EXCEL.js. Verifica que MENU.html lo incluya.", "error");
+      return false;
+    }
+    return true;
+  }
+
+  // columns: [{ header, width, type: "text" | "money" | "date" | "int" }]
+  // totals: { indiceColumna: valor } (solo columnas de dinero)
+  function dataSheet(name, columns, rows, totals) {
+    const styleOf = { money: "money", date: "date", int: "int" };
+
+    const sheetRows = [
+      columns.map(column => ({ v: column.header, s: "header" })),
+      ...rows.map(row => row.map((value, index) => {
+        const style = styleOf[columns[index].type];
+        return style ? { v: value, s: style } : value;
+      }))
+    ];
+
+    if (totals) {
+      sheetRows.push(columns.map((column, index) => {
+        if (index === 0) return { v: "TOTAL", s: "resultLabel" };
+        if (totals[index] !== undefined) return { v: totals[index], s: "result" };
+        return { v: "", s: "resultLabel" };
+      }));
+    }
+
+    return {
+      name,
+      widths: columns.map(column => column.width || 14),
+      freezeRows: 1,
+      rows: sheetRows
+    };
+  }
+
+  function downloadExcel(filename, sheets) {
+    if (!excelAvailable()) return false;
+
+    try {
+      window.PhonePlanetExcel.download(filename, sheets);
+      notify("Archivo Excel descargado.", "success");
+      return true;
+    } catch (error) {
+      console.error("Error creando Excel:", error);
+      notify(`No se pudo crear el archivo Excel: ${error.message}`, "error");
+      return false;
+    }
+  }
+
+  function dateFilterHTML(prefix) {
+    return `
+      <div class="field">
+        <label for="${prefix}From">Desde</label>
+        <input id="${prefix}From" type="date">
+      </div>
+      <div class="field">
+        <label for="${prefix}To">Hasta</label>
+        <input id="${prefix}To" type="date">
+      </div>
+    `;
+  }
+
+  const inDateRange = (date, from, to) => {
+    const day = String(date || "").slice(0, 10);
+    return (!from || day >= from) && (!to || day <= to);
+  };
+
+  const entryTotal = entry =>
+    Number(entry.totalCost) || (Number(entry.unitValue) || 0) * (Number(entry.qty) || 0);
+
+  const sumBy = (list, pick) => list.reduce((sum, item) => sum + (Number(pick(item)) || 0), 0);
 
   // =====================================================
   // GARANTÍAS
@@ -1999,6 +2369,20 @@ $("shareClosing").addEventListener("click", async () => {
         });
 
         if (result.error) throw result.error;
+
+        // Respaldo: si la función no guardó el medio de pago, se completa aquí
+        // para que el cierre de mes lo cuente en el medio correcto.
+        try {
+          const newId = typeof result.data === "string" ? result.data : result.data?.id;
+          if (isUuid(newId)) {
+            await db.from("entradas_mercancia")
+              .update({ medio_pago: paymentMethod })
+              .eq("id", newId)
+              .is("medio_pago", null);
+          }
+        } catch (_) {
+          // Sin permiso o sin columna: el cierre mostrará esta entrada como "Sin medio".
+        }
       } catch (error) {
         console.error("Error registrando entrada de mercancía:", error);
         notify(
@@ -2571,6 +2955,29 @@ $("shareClosing").addEventListener("click", async () => {
         </form>
       </div>
 
+      <div class="form-panel">
+        <h3>Cargar stock desde Excel</h3>
+        <p class="muted">
+          Sube un archivo .xlsx con tus productos. Los códigos nuevos se crean con su cantidad inicial.
+          Los códigos que ya existen solo actualizan nombre, descripción, precio y nivel de pedido;
+          su cantidad no cambia (para sumar unidades usa "Entrada de mercancía").
+        </p>
+
+        <div class="toolbar">
+          <button class="btn btn-ghost" type="button" id="stockTemplate">Descargar plantilla</button>
+
+          <div class="field">
+            <label for="stockFile">Archivo Excel (.xlsx)</label>
+            <input id="stockFile" type="file"
+              accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+          </div>
+
+          <button class="btn btn-ghost" type="button" id="stockExport">Descargar stock actual</button>
+        </div>
+
+        <div id="stockImportPreview"></div>
+      </div>
+
       <h3>Tabla general de stock</h3>
       <p class="muted">
         El total vendido corresponde a las ventas netas después de
@@ -2635,6 +3042,337 @@ $("shareClosing").addEventListener("click", async () => {
     });
 
     renderStockTable();
+    setupStockExcel();
+  }
+
+  // =====================================================
+  // STOCK <-> EXCEL
+  // =====================================================
+  const STOCK_HEADERS = {
+    code: ["codigo", "codigodeproducto", "referencia", "ref"],
+    name: ["nombre", "nombredelproducto", "nombreproducto", "producto"],
+    description: ["descripcion", "descripciondeproducto"],
+    price: ["precio", "preciodeventa", "precioventa", "valor", "valorunitario", "preciounitario", "valorunitariodesalida"],
+    stock: ["cantidad", "cantidadinicial", "stock", "existencias", "inventario"],
+    reorder: ["niveldepedido", "nivelreorden", "reorden", "minimo", "stockminimo"]
+  };
+
+  const MAX_IMPORT_ROWS = 500;
+
+  const normalizeHeader = value => String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+
+  // Acepta 25000, "25.000", "$ 25.000" o "25000,50".
+  function parseNumberCell(value) {
+    if (typeof value === "number") return value;
+
+    let text = String(value ?? "").trim().replace(/[$\s]/g, "");
+    if (!text) return NaN;
+
+    if (/^\d{1,3}([.,]\d{3})+$/.test(text)) text = text.replace(/[.,]/g, "");
+    else text = text.replace(",", ".");
+
+    return /^-?\d+(\.\d+)?$/.test(text) ? Number(text) : NaN;
+  }
+
+  const cellText = value => String(value ?? "").replace(/\s+/g, " ").trim();
+
+  // Convierte las filas del Excel en un plan: qué se crea, qué se actualiza y qué tiene errores.
+  function buildStockPlan(rows, inactiveCodes) {
+    let headerIndex = -1;
+    let columns = {};
+
+    for (let i = 0; i < Math.min(rows.length, 10) && headerIndex < 0; i++) {
+      const found = {};
+      (rows[i] || []).forEach((value, column) => {
+        const key = normalizeHeader(value);
+        Object.entries(STOCK_HEADERS).forEach(([field, names]) => {
+          if (names.includes(key) && found[field] === undefined) found[field] = column;
+        });
+      });
+
+      if (found.code !== undefined && found.name !== undefined && found.price !== undefined) {
+        headerIndex = i;
+        columns = found;
+      }
+    }
+
+    if (headerIndex < 0) {
+      throw new Error('No se encontraron las columnas. La primera fila debe tener: Código, Nombre y Precio (y opcionalmente Descripción, Cantidad y Nivel de pedido). Descarga la plantilla.');
+    }
+
+    const existing = new Map(state.products.map(product => [product.code.toLowerCase(), product]));
+    const seen = new Set();
+    const items = [];
+
+    for (let i = headerIndex + 1; i < rows.length; i++) {
+      const row = rows[i] || [];
+      const get = field => columns[field] === undefined ? "" : row[columns[field]];
+
+      if (row.every(value => cellText(value) === "")) continue;
+
+      const item = {
+        line: i + 1,
+        code: cellText(get("code")).toUpperCase(),
+        name: cellText(get("name")),
+        description: cellText(get("description")),
+        price: parseNumberCell(get("price")),
+        stock: cellText(get("stock")) === "" ? 0 : parseNumberCell(get("stock")),
+        reorder: cellText(get("reorder")) === "" ? 5 : parseNumberCell(get("reorder")),
+        status: "new",
+        error: ""
+      };
+
+      if (!item.description) item.description = item.name;
+      const key = item.code.toLowerCase();
+
+      if (!item.code) item.error = "Falta el código.";
+      else if (item.code.length > 50) item.error = "El código supera 50 caracteres.";
+      else if (!item.name) item.error = "Falta el nombre.";
+      else if (item.name.length > 150) item.error = "El nombre supera 150 caracteres.";
+      else if (!Number.isFinite(item.price) || item.price < 0) item.error = "El precio no es válido.";
+      else if (!Number.isInteger(item.stock) || item.stock < 0) item.error = "La cantidad debe ser un entero de 0 o más.";
+      else if (!Number.isInteger(item.reorder) || item.reorder < 0) item.error = "El nivel de pedido debe ser un entero de 0 o más.";
+      else if (seen.has(key)) item.error = "Código repetido dentro del archivo.";
+      else if (inactiveCodes.has(key)) item.error = "Existe un producto desactivado con este código.";
+
+      if (item.error) {
+        item.status = "error";
+      } else {
+        seen.add(key);
+        const current = existing.get(key);
+        if (current) {
+          item.status = "update";
+          item.id = current.id;
+          item.changed =
+            current.name !== item.name ||
+            (current.description || "") !== item.description ||
+            Number(current.price) !== item.price ||
+            Number(current.reorderLevel) !== item.reorder;
+        }
+      }
+
+      items.push(item);
+      if (items.length > MAX_IMPORT_ROWS) {
+        throw new Error(`El archivo tiene más de ${MAX_IMPORT_ROWS} productos. Divídelo en varios archivos.`);
+      }
+    }
+
+    if (!items.length) throw new Error("El archivo no tiene productos debajo de los encabezados.");
+    return items;
+  }
+
+  function setupStockExcel() {
+    let plan = [];
+
+    $("stockTemplate").addEventListener("click", () => {
+      const header = ["Código", "Nombre", "Descripción", "Precio de venta", "Cantidad inicial", "Nivel de pedido"]
+        .map(text => ({ v: text, s: "header" }));
+
+      downloadExcel("PhonePlanet_Plantilla_Stock.xlsx", [
+        {
+          name: "Productos",
+          widths: [16, 30, 38, 18, 18, 18],
+          freezeRows: 1,
+          rows: [
+            header,
+            ["CAB-001", "Cable Tipo C", "Cable de carga rápida 1 m", { v: 20000, s: "money" }, 10, 5],
+            ["FUN-002", "Funda Transparente", "Funda antigolpes", { v: 25000, s: "money" }, 6, 3]
+          ]
+        },
+        {
+          name: "Instrucciones",
+          widths: [90],
+          rows: [
+            [{ v: "Cómo llenar la plantilla", s: "title" }],
+            ["1. Escribe un producto por fila, debajo de los encabezados. Borra las filas de ejemplo."],
+            ["2. Código, Nombre y Precio de venta son obligatorios."],
+            ["3. Descripción es opcional (si la dejas vacía se usa el nombre)."],
+            ["4. Cantidad inicial es opcional (por defecto 0). Nivel de pedido es opcional (por defecto 5)."],
+            ["5. Si el código ya existe, solo se actualizan nombre, descripción, precio y nivel de pedido."],
+            ["6. La cantidad de un producto que ya existe NO cambia: usa 'Entrada de mercancía'."],
+            ["7. Máximo 500 productos por archivo."]
+          ]
+        }
+      ]);
+    });
+
+    $("stockExport").addEventListener("click", () => {
+      const rows = state.products.map(product => {
+        const reorder = Number(product.reorderLevel ?? 5);
+        return [
+          product.code, product.name, product.description || product.name, product.stock,
+          product.price, productSalesTotal(product.id), productIncomingCost(product.id),
+          Number(product.stock) <= reorder ? "SÍ" : "NO"
+        ];
+      });
+
+      downloadExcel(`PhonePlanet_Stock_${today()}.xlsx`, [
+        dataSheet("Stock", [
+          { header: "Código", width: 16 },
+          { header: "Nombre", width: 30 },
+          { header: "Descripción", width: 38 },
+          { header: "Cantidad", width: 12, type: "int" },
+          { header: "Valor unitario de salida", width: 22, type: "money" },
+          { header: "Total vendido", width: 18, type: "money" },
+          { header: "Total costo entrada", width: 20, type: "money" },
+          { header: "¿Hacer pedido?", width: 16 }
+        ], rows, { 5: sumBy(state.products, p => productSalesTotal(p.id)), 6: sumBy(state.products, p => productIncomingCost(p.id)) })
+      ]);
+    });
+
+    const preview = $("stockImportPreview");
+
+    const badge = item => ({
+      new: '<span class="import-badge badge-new">Nuevo</span>',
+      update: item.changed
+        ? '<span class="import-badge badge-update">Se actualiza</span>'
+        : '<span class="import-badge badge-same">Sin cambios</span>',
+      error: `<span class="import-badge badge-error">${escapeHTML(item.error)}</span>`
+    }[item.status]);
+
+    const drawPlan = () => {
+      const created = plan.filter(item => item.status === "new");
+      const updated = plan.filter(item => item.status === "update" && item.changed);
+      const failed = plan.filter(item => item.status === "error");
+      const nothing = !created.length && !updated.length;
+
+      preview.innerHTML = `
+        <p class="import-summary">
+          <strong>${created.length}</strong> nuevos ·
+          <strong>${updated.length}</strong> por actualizar ·
+          <strong class="${failed.length ? "stock-low" : ""}">${failed.length}</strong> con errores
+          ${failed.length ? '<br><span class="muted">Las filas con error no se cargarán. Corrígelas en el Excel y vuelve a subirlo si las necesitas.</span>' : ""}
+        </p>
+
+        ${table(
+          ["Fila", "Código", "Nombre", "Precio", "Cantidad", "Nivel de pedido", "Resultado"],
+          plan.map(item => `
+            <tr>
+              <td>${item.line}</td>
+              <td>${escapeHTML(item.code || "—")}</td>
+              <td>${escapeHTML(item.name || "—")}</td>
+              <td>${Number.isFinite(item.price) ? money(item.price) : "—"}</td>
+              <td>${item.status === "update" ? "No cambia" : (Number.isFinite(item.stock) ? item.stock : "—")}</td>
+              <td>${Number.isFinite(item.reorder) ? item.reorder : "—"}</td>
+              <td>${badge(item)}</td>
+            </tr>
+          `).join("")
+        )}
+
+        <div class="form-actions">
+          <button class="btn btn-primary" type="button" id="stockConfirm" ${nothing ? "disabled" : ""}>
+            Confirmar carga (${created.length} nuevos, ${updated.length} por actualizar)
+          </button>
+          <button class="btn btn-ghost" type="button" id="stockCancel">Cancelar</button>
+        </div>
+      `;
+
+      $("stockCancel").addEventListener("click", () => {
+        plan = [];
+        preview.innerHTML = "";
+        $("stockFile").value = "";
+        notify("");
+      });
+
+      $("stockConfirm").addEventListener("click", async () => {
+        if (role !== "administrador") return notify("Acceso restringido.", "error");
+
+        const confirmButton = $("stockConfirm");
+        confirmButton.disabled = true;
+
+        let createdCount = 0;
+        let updatedCount = 0;
+
+        try {
+          for (let i = 0; i < created.length; i += 100) {
+            confirmButton.textContent = `Cargando… ${Math.min(i + 100, created.length)} de ${created.length}`;
+
+            const chunk = created.slice(i, i + 100).map(item => ({
+              id: crypto.randomUUID(),
+              codigo: item.code,
+              nombre: item.name,
+              descripcion: item.description,
+              precio: item.price,
+              stock: item.stock,
+              nivel_reorden: item.reorder,
+              activo: true
+            }));
+
+            const result = await db.from("productos").insert(chunk);
+            if (result.error) throw result.error;
+            createdCount += chunk.length;
+          }
+
+          for (const item of updated) {
+            confirmButton.textContent = `Actualizando… ${updatedCount + 1} de ${updated.length}`;
+
+            const result = await db.from("productos")
+              .update({
+                nombre: item.name,
+                descripcion: item.description,
+                precio: item.price,
+                nivel_reorden: item.reorder
+              })
+              .eq("id", item.id);
+
+            if (result.error) throw result.error;
+            updatedCount++;
+          }
+        } catch (error) {
+          console.error("Error cargando stock desde Excel:", error);
+
+          let message = error.message || "No se pudo completar la carga.";
+          if (error.code === "23505") message = "Hay un código repetido en la base de datos. Revisa los códigos del archivo.";
+          if (error.code === "42501" || /row-level security/i.test(message)) message = "Supabase no permite esta acción con tu cuenta.";
+
+          notify(`${message} Se cargaron ${createdCount} nuevos y ${updatedCount} actualizaciones antes del error.`, "error");
+
+          try { await loadSupabaseState(); renderDashboard(); renderStock(); } catch (_) { /* sin refrescar */ }
+          return;
+        }
+
+        await loadSupabaseState();
+        renderDashboard();
+        renderStock();
+        notify(`Stock cargado: ${createdCount} productos nuevos y ${updatedCount} actualizados.`, "success");
+      });
+    };
+
+    $("stockFile").addEventListener("change", async () => {
+      const file = $("stockFile").files[0];
+      plan = [];
+      preview.innerHTML = "";
+      if (!file) return;
+
+      if (!excelAvailable()) return;
+
+      if (!/\.xlsx$/i.test(file.name)) {
+        return notify("Usa un archivo de Excel con extensión .xlsx.", "error");
+      }
+
+      try {
+        notify("Leyendo el archivo…");
+        const sheet = await window.PhonePlanetExcel.read(file);
+
+        // Códigos de productos desactivados (si existen, no se pueden volver a crear).
+        const inactive = await db.from("productos").select("codigo").eq("activo", false);
+        const inactiveCodes = new Set(
+          (inactive.data || []).map(row => String(row.codigo || "").toLowerCase())
+        );
+
+        plan = buildStockPlan(sheet.rows, inactiveCodes);
+        drawPlan();
+        notify("Revisa el resultado y confirma la carga.", "success");
+      } catch (error) {
+        console.error("Error leyendo Excel:", error);
+        notify(error.message || "No se pudo leer el archivo.", "error");
+        $("stockFile").value = "";
+      }
+    });
   }
 
   function productSalesTotal(productId) {
@@ -2866,19 +3604,6 @@ $("shareClosing").addEventListener("click", async () => {
       `
       : "";
 
-    const detailRows = state.sales.slice().reverse().map(sale => `
-      <tr>
-        <td>${escapeHTML(sale.date)}</td>
-        <td>${escapeHTML(saleEmployeeName(sale))}</td>
-        <td>${escapeHTML(sale.productCode || "—")}</td>
-        <td>${escapeHTML(sale.productName)}</td>
-        <td>${sale.qty}</td>
-        <td>${money(sale.originalUnitPrice ?? sale.unitPrice)}</td>
-        <td>${money((sale.discountPerUnit || 0) * sale.qty)}</td>
-        <td>${money(sale.total)}</td>
-        <td>${escapeHTML(sale.note || "—")}</td>
-      </tr>
-    `).join("");
 
     $("workspaceContent").innerHTML = `
       <div class="stats">
@@ -2940,17 +3665,13 @@ $("shareClosing").addEventListener("click", async () => {
         <button class="btn btn-ghost" id="clearSalesFilter" type="button">
           Limpiar
         </button>
+
+        <button class="btn btn-primary" id="salesExcel" type="button">
+          Descargar Excel
+        </button>
       </div>
 
-      <div id="salesDetailTable">
-        ${table(
-          [
-            "Fecha", "Empleado", "Código", "Producto", "Cantidad",
-            "Precio unit.", "Descuento", "Total final", "Nota"
-          ],
-          detailRows
-        )}
-      </div>
+      <div id="salesDetailTable"></div>
     `;
 
     $("applySalesFilter").addEventListener("click", filterSales);
@@ -2961,6 +3682,42 @@ $("shareClosing").addEventListener("click", async () => {
       $("salesDateTo").value = "";
       filterSales();
     });
+
+    $("salesExcel").addEventListener("click", exportSalesExcel);
+
+    filterSales();
+  }
+
+  let salesShown = [];
+
+  function exportSalesExcel() {
+    const rows = salesShown.slice().reverse().map(sale => [
+      sale.date,
+      saleEmployeeName(sale),
+      sale.productCode || "",
+      sale.productName,
+      sale.qty,
+      sale.originalUnitPrice ?? sale.unitPrice,
+      (sale.discountPerUnit || 0) * sale.qty,
+      sale.paymentMethod || "Sin registrar",
+      sale.total,
+      sale.note || ""
+    ]);
+
+    downloadExcel(`PhonePlanet_Ventas_${today()}.xlsx`, [
+      dataSheet("Ventas", [
+        { header: "Fecha", width: 12, type: "date" },
+        { header: "Empleado", width: 26 },
+        { header: "Código", width: 14 },
+        { header: "Producto", width: 34 },
+        { header: "Cantidad", width: 10, type: "int" },
+        { header: "Precio unitario", width: 16, type: "money" },
+        { header: "Descuento", width: 14, type: "money" },
+        { header: "Medio de pago", width: 24 },
+        { header: "Total final", width: 16, type: "money" },
+        { header: "Nota", width: 30 }
+      ], rows, { 6: sumBy(salesShown, s => (s.discountPerUnit || 0) * s.qty), 8: sumBy(salesShown, s => s.total) })
+    ]);
   }
 
   function filterSales() {
@@ -2974,6 +3731,8 @@ $("shareClosing").addEventListener("click", async () => {
       (!to || sale.date <= to)
     );
 
+    salesShown = filtered;
+
     const rows = filtered.slice().reverse().map(sale => `
       <tr>
         <td>${escapeHTML(sale.date)}</td>
@@ -2983,6 +3742,7 @@ $("shareClosing").addEventListener("click", async () => {
         <td>${sale.qty}</td>
         <td>${money(sale.originalUnitPrice ?? sale.unitPrice)}</td>
         <td>${money((sale.discountPerUnit || 0) * sale.qty)}</td>
+        <td>${escapeHTML(sale.paymentMethod || "—")}</td>
         <td>${money(sale.total)}</td>
         <td>${escapeHTML(sale.note || "—")}</td>
       </tr>
@@ -2991,7 +3751,7 @@ $("shareClosing").addEventListener("click", async () => {
     $("salesDetailTable").innerHTML = table(
       [
         "Fecha", "Empleado", "Código", "Producto", "Cantidad",
-        "Precio unit.", "Descuento", "Total final", "Nota"
+        "Precio unit.", "Descuento", "Medio de pago", "Total final", "Nota"
       ],
       rows,
       "No hay ventas con esos filtros."
@@ -3326,32 +4086,83 @@ form.addEventListener("submit", async event => {
       return notify("Acceso restringido.", "error");
     }
 
-    const rows = state.incoming.slice().reverse().map(entry => `
-      <tr>
-        <td>${escapeHTML(entry.date)}</td>
-        <td>${escapeHTML(entry.employee)}</td>
-        <td>${escapeHTML(entry.code)}</td>
-        <td>${escapeHTML(entry.productName)}</td>
-        <td>${entry.qty}</td>
-        <td>${money(entry.unitValue || 0)}</td>
-        <td>${money(
-          entry.totalCost ??
-          ((entry.unitValue || 0) * entry.qty)
-        )}</td>
-        <td>${escapeHTML(entry.supplier || "—")}</td>
-        <td>${escapeHTML(entry.note || "—")}</td>
-      </tr>
-    `).join("");
+    $("workspaceContent").innerHTML = `
+      <div class="toolbar">
+        ${dateFilterHTML("incoming")}
+        <button class="btn btn-ghost" id="incomingApply" type="button">Aplicar filtros</button>
+        <button class="btn btn-ghost" id="incomingClear" type="button">Limpiar</button>
+        <button class="btn btn-primary" id="incomingExcel" type="button">Descargar Excel</button>
+      </div>
+      <div id="incomingTable"></div>
+    `;
 
-    $("workspaceContent").innerHTML = table(
-      [
-        "Fecha", "Registrado por", "Código", "Producto",
-        "Cantidad", "Valor unitario", "Valor total",
-        "Proveedor", "Observaciones"
-      ],
-      rows,
-      "Todavía no hay entradas de mercancía."
-    );
+    let shown = [];
+
+    const draw = () => {
+      shown = state.incoming.filter(entry =>
+        inDateRange(entry.date, $("incomingFrom").value, $("incomingTo").value)
+      );
+
+      const rows = shown.slice().reverse().map(entry => `
+        <tr>
+          <td>${escapeHTML(entry.date)}</td>
+          <td>${escapeHTML(entry.employee)}</td>
+          <td>${escapeHTML(entry.code)}</td>
+          <td>${escapeHTML(entry.productName)}</td>
+          <td>${entry.qty}</td>
+          <td>${money(entry.unitValue || 0)}</td>
+          <td>${money(entryTotal(entry))}</td>
+          <td>${escapeHTML(entry.paymentMethod || "—")}</td>
+          <td>${escapeHTML(entry.supplier || "—")}</td>
+          <td>${escapeHTML(entry.note || "—")}</td>
+        </tr>
+      `).join("");
+
+      $("incomingTable").innerHTML = `
+        <p class="muted">Total comprado: <strong>${money(sumBy(shown, entryTotal))}</strong></p>
+        ${table(
+          [
+            "Fecha", "Registrado por", "Código", "Producto",
+            "Cantidad", "Valor unitario", "Valor total", "Medio de pago",
+            "Proveedor", "Observaciones"
+          ],
+          rows,
+          "Todavía no hay entradas de mercancía."
+        )}
+      `;
+    };
+
+    $("incomingApply").addEventListener("click", draw);
+    $("incomingClear").addEventListener("click", () => {
+      $("incomingFrom").value = "";
+      $("incomingTo").value = "";
+      draw();
+    });
+
+    $("incomingExcel").addEventListener("click", () => {
+      const rows = shown.slice().reverse().map(entry => [
+        entry.date, entry.employee, entry.code, entry.productName, entry.qty,
+        entry.unitValue || 0, entryTotal(entry),
+        entry.paymentMethod || "Sin registrar", entry.supplier || "", entry.note || ""
+      ]);
+
+      downloadExcel(`PhonePlanet_Mercancia_${today()}.xlsx`, [
+        dataSheet("Mercancía", [
+          { header: "Fecha", width: 12, type: "date" },
+          { header: "Registrado por", width: 24 },
+          { header: "Código", width: 14 },
+          { header: "Producto", width: 34 },
+          { header: "Cantidad", width: 10, type: "int" },
+          { header: "Valor unitario", width: 16, type: "money" },
+          { header: "Valor total", width: 16, type: "money" },
+          { header: "Medio de pago", width: 24 },
+          { header: "Proveedor", width: 24 },
+          { header: "Observaciones", width: 30 }
+        ], rows, { 6: sumBy(shown, entryTotal) })
+      ]);
+    });
+
+    draw();
   }
 
   function renderMoneyLog(kind, title, conceptLabel, amountLabel) {
@@ -3360,13 +4171,15 @@ form.addEventListener("submit", async event => {
     }
 
     const records = state[kind];
+    const label = { expenses: "Gastos", payroll: "Nómina", rent: "Arriendos" }[kind];
+    const isPayroll = kind === "payroll";
 
     $("workspaceContent").innerHTML = `
       <div class="form-panel">
         <h3>${title}</h3>
 
         <form id="moneyForm" class="form-grid">
-          ${kind === "payroll" ? `
+          ${isPayroll ? `
             <div class="field wide">
               <label for="payrollEmployee">Empleado</label>
               <select id="payrollEmployee" required>
@@ -3375,7 +4188,7 @@ form.addEventListener("submit", async event => {
             </div>
           ` : ""}
           <div class="field wide">
-            <label for="moneyConcept">${kind === "payroll" ? "Concepto del pago" : conceptLabel}</label>
+            <label for="moneyConcept">${isPayroll ? "Concepto del pago" : conceptLabel}</label>
             <input id="moneyConcept" maxlength="140" required>
           </div>
 
@@ -3383,6 +4196,14 @@ form.addEventListener("submit", async event => {
             <label for="moneyAmount">${amountLabel} (COP)</label>
             <input id="moneyAmount" type="number" min="1"
               step="1" required>
+          </div>
+
+          <div class="field">
+            <label for="moneyPayment">Medio de pago</label>
+            <select id="moneyPayment" required>
+              <option value="">Selecciona un medio de pago</option>
+              ${PAYMENT_METHODS.map(method => `<option value="${method}">${method}</option>`).join("")}
+            </select>
           </div>
 
           <div class="field">
@@ -3399,14 +4220,30 @@ form.addEventListener("submit", async event => {
         </form>
       </div>
 
+      <div class="toolbar">
+        ${dateFilterHTML("money")}
+        <button class="btn btn-ghost" id="moneyApply" type="button">Aplicar filtros</button>
+        <button class="btn btn-ghost" id="moneyClear" type="button">Limpiar</button>
+        <button class="btn btn-primary" id="moneyExcel" type="button">Descargar Excel</button>
+      </div>
+
       <div id="moneyTable"></div>
     `;
 
+    const employeeLabel = record => record.employeeId ? employeeName(record.employeeId) : "—";
+    let shown = [];
+
     const renderRows = () => {
-      const rows = records.slice().reverse().map(record => `
+      shown = records.filter(record =>
+        inDateRange(record.date, $("moneyFrom").value, $("moneyTo").value)
+      );
+
+      const rows = shown.slice().reverse().map(record => `
         <tr>
           <td>${escapeHTML(record.date)}</td>
           <td>${escapeHTML(record.concept)}</td>
+          ${isPayroll ? `<td>${escapeHTML(employeeLabel(record))}</td>` : ""}
+          <td>${escapeHTML(record.paymentMethod || "—")}</td>
           <td>${money(record.amount)}</td>
         </tr>
       `).join("");
@@ -3414,21 +4251,54 @@ form.addEventListener("submit", async event => {
       $("moneyTable").innerHTML = `
         <p class="muted">
           Total registrado:
-          <strong>${money(
-            records.reduce((sum, record) => sum + record.amount, 0)
-          )}</strong>
+          <strong>${money(sumBy(shown, record => record.amount))}</strong>
         </p>
-        ${table(["Fecha", "Concepto", "Valor"], rows)}
+        ${table(
+          isPayroll
+            ? ["Fecha", "Concepto", "Empleado", "Medio de pago", "Valor"]
+            : ["Fecha", "Concepto", "Medio de pago", "Valor"],
+          rows
+        )}
       `;
     };
 
     renderRows();
+
+    $("moneyApply").addEventListener("click", renderRows);
+    $("moneyClear").addEventListener("click", () => {
+      $("moneyFrom").value = "";
+      $("moneyTo").value = "";
+      renderRows();
+    });
+
+    $("moneyExcel").addEventListener("click", () => {
+      const columns = [
+        { header: "Fecha", width: 12, type: "date" },
+        { header: "Concepto", width: 36 },
+        ...(isPayroll ? [{ header: "Empleado", width: 26 }] : []),
+        { header: "Medio de pago", width: 24 },
+        { header: "Valor", width: 16, type: "money" }
+      ];
+
+      const rows = shown.slice().reverse().map(record => [
+        record.date,
+        record.concept,
+        ...(isPayroll ? [employeeLabel(record)] : []),
+        record.paymentMethod || "Sin registrar",
+        record.amount
+      ]);
+
+      downloadExcel(`PhonePlanet_${label}_${today()}.xlsx`, [
+        dataSheet(label, columns, rows, { [columns.length - 1]: sumBy(shown, record => record.amount) })
+      ]);
+    });
 
     $("moneyForm").addEventListener("submit", event => {
       event.preventDefault();
 
       const concept = $("moneyConcept").value.trim();
       const amount = Number($("moneyAmount").value);
+      const paymentMethod = $("moneyPayment").value;
 
       if (!concept || !Number.isFinite(amount) || amount <= 0) {
         return notify(
@@ -3437,11 +4307,16 @@ form.addEventListener("submit", async event => {
         );
       }
 
+      if (!PAYMENT_METHODS.includes(paymentMethod)) {
+        return notify("Selecciona el medio de pago.", "error");
+      }
+
       records.push({
         id: uid(kind.toUpperCase()),
         concept,
         amount,
-        employeeId: kind === "payroll" ? $("payrollEmployee").value : null,
+        paymentMethod,
+        employeeId: isPayroll ? $("payrollEmployee").value : null,
         date: $("moneyDate").value || today(),
         createdAt: new Date().toISOString()
       });
