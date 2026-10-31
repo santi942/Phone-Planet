@@ -1207,3 +1207,120 @@ footer {
   border-radius: 50%;
   vertical-align: middle;
 }
+
+/* Carga de stock desde Excel */
+.import-summary {
+  margin: 14px 0 10px;
+  font-size: 13px;
+  color: #2B3E53;
+}
+
+.import-badge {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.badge-new { background: #E3F4E8; color: #16803C; }
+.badge-update { background: #E6EEF9; color: #254B76; }
+.badge-same { background: #EEF1F5; color: #6A7A8E; }
+.badge-error { background: #FBE7E9; color: #C62828; }
+
+/* Cierre de mes */
+.close-report {
+  min-width: 720px;
+  padding: 24px;
+  border: 1px solid #D7E0EA;
+  border-radius: 12px;
+  background: #FFFFFF;
+  color: #1F2F44;
+}
+
+.close-head {
+  margin-bottom: 16px;
+  text-align: center;
+}
+
+.close-head h2 { font-size: 22px; }
+.close-head h3 { margin-top: 2px; font-size: 16px; color: #254B76; }
+.close-head p { margin-top: 4px; font-size: 12px; color: #6A7A8E; }
+
+.close-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.close-table th {
+  padding: 10px;
+  background: #1F3A5F;
+  color: #FFFFFF;
+  font-weight: 600;
+  text-align: right;
+}
+
+.close-table th:first-child { text-align: left; }
+
+.close-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid #E3EAF2;
+}
+
+.close-table td.num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.close-section td { background: #E8EEF7; font-weight: 700; }
+.close-strong td { font-weight: 600; }
+.close-total td { background: #F5F8FC; font-weight: 700; }
+.close-result td { background: #DFF3E4; font-size: 14px; font-weight: 700; }
+.close-table .neg, .close-summary .neg strong { color: #C62828; }
+
+.close-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.close-summary > div {
+  padding: 12px 14px;
+  border: 1px solid #D7E0EA;
+  border-radius: 10px;
+  background: #F7F9FC;
+}
+
+.close-summary span {
+  display: block;
+  font-size: 12px;
+  color: #5B6F88;
+}
+
+.close-summary strong {
+  font-size: 20px;
+}
+
+.close-summary .ok strong { color: #16803C; }
+
+.close-note {
+  margin-top: 14px;
+  font-size: 12px;
+  color: #5B6F88;
+}
+
+/* Contenedor fuera de pantalla para generar la imagen del cierre */
+.close-image-holder {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  width: 1000px;
+  background: #FFFFFF;
+}
+
+.close-image-holder .close-report {
+  border: 0;
+  border-radius: 0;
+}
