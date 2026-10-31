@@ -2877,7 +2877,12 @@ $("shareClosing").addEventListener("click", async () => {
         const item = state.catalog.find(entry => entry.id === button.dataset.catalogDelete);
         if (!item || role !== "administrador") return;
 
-        if (!confirm(`¿Eliminar "${item.name}" de la tienda?\n\nEsto no afecta el stock ni las ventas.`)) return;
+        if (!await confirmAction({
+          title: "Quitar de la tienda",
+          text: `¿Eliminar "${item.name}" de la tienda? Esto no afecta el stock ni las ventas.`,
+          confirmLabel: "Eliminar",
+          danger: true
+        })) return;
 
         button.disabled = true;
 
@@ -3456,7 +3461,7 @@ $("shareClosing").addEventListener("click", async () => {
       });
   }
 
-  function editProduct(id) {
+  async function editProduct(id) {
     if (role !== "administrador") {
       return notify("Acceso restringido.", "error");
     }
@@ -3464,29 +3469,25 @@ $("shareClosing").addEventListener("click", async () => {
     const product = state.products.find(item => item.id === id);
     if (!product) return;
 
-    const code = prompt("Código del producto:", product.code);
-    if (code === null) return;
+    const values = await formDialog({
+      title: "Editar producto",
+      text: `Modifica los datos de ${product.name}. El stock actual no cambia.`,
+      confirmLabel: "Guardar cambios",
+      fields: [
+        { name: "code", label: "Código del producto", value: product.code, maxLength: 40 },
+        { name: "name", label: "Nombre del producto", value: product.name, maxLength: 160 },
+        { name: "description", label: "Descripción", value: product.description || product.name, maxLength: 300 },
+        { name: "price", label: "Valor unitario de venta (COP)", type: "number", value: product.price, min: 0, step: "1" },
+        { name: "reorder", label: "Pedir cuando el stock sea igual o inferior a", type: "number", value: product.reorderLevel ?? 5, min: 0, step: "1" }
+      ]
+    });
+    if (!values) return;
 
-    const name = prompt("Nombre del producto:", product.name);
-    if (name === null) return;
-
-    const description = prompt(
-      "Descripción del producto:",
-      product.description || product.name
-    );
-    if (description === null) return;
-
-    const priceText = prompt(
-      "Valor unitario de salida / venta en COP:",
-      String(product.price)
-    );
-    if (priceText === null) return;
-
-    const reorderText = prompt(
-      "Solicitar pedido cuando el stock sea igual o inferior a:",
-      String(product.reorderLevel ?? 5)
-    );
-    if (reorderText === null) return;
+    const code = values.code;
+    const name = values.name;
+    const description = values.description;
+    const priceText = values.price;
+    const reorderText = values.reorder;
 
     const price = Number(priceText);
     const reorderLevel = Number(reorderText);
@@ -3527,7 +3528,7 @@ $("shareClosing").addEventListener("click", async () => {
     notify("Producto actualizado.", "success");
   }
 
-  function deleteProduct(id) {
+  async function deleteProduct(id) {
     if (role !== "administrador") {
       return notify("Acceso restringido.", "error");
     }
@@ -3545,7 +3546,12 @@ $("shareClosing").addEventListener("click", async () => {
       );
     }
 
-    if (!confirm(`¿Eliminar "${product.name}" del catálogo?`)) return;
+    if (!await confirmAction({
+      title: "Eliminar producto",
+      text: `¿Eliminar "${product.name}" del catálogo?`,
+      confirmLabel: "Eliminar",
+      danger: true
+    })) return;
 
     state.products = state.products.filter(item => item.id !== id);
 
@@ -3760,6 +3766,149 @@ $("shareClosing").addEventListener("click", async () => {
 
  
 
+
+  // =====================================================
+  // Ventana de confirmación con el diseño del panel
+  // (reemplaza la ventana nativa del navegador).
+  // =====================================================
+  function confirmAction({
+    title = "Confirmar acción",
+    text = "¿Deseas continuar?",
+    confirmLabel = "Confirmar",
+    cancelLabel = "Cancelar",
+    danger = false,
+    icon = danger ? "🗑️" : "❔"
+  } = {}) {
+    return new Promise(resolve => {
+      const dialog = document.createElement("dialog");
+      dialog.className = "confirm-dialog confirm-dialog--custom";
+      dialog.innerHTML = `
+        <div class="confirm-dialog__body">
+          <div class="confirm-dialog__icon ${danger ? "is-danger" : ""}" aria-hidden="true">${icon}</div>
+          <h3></h3>
+          <p></p>
+        </div>
+        <div class="confirm-dialog__actions">
+          <button type="button" class="btn btn-ghost" data-cancel></button>
+          <button type="button" class="btn ${danger ? "btn-danger" : "btn-primary"}" data-ok></button>
+        </div>
+      `;
+      dialog.querySelector("h3").textContent = title;
+      dialog.querySelector("p").textContent = text;
+      dialog.querySelector("[data-cancel]").textContent = cancelLabel;
+      dialog.querySelector("[data-ok]").textContent = confirmLabel;
+
+      let answer = false;
+      const finish = value => {
+        answer = value;
+        dialog.close();
+      };
+
+      dialog.querySelector("[data-ok]").addEventListener("click", () => finish(true));
+      dialog.querySelector("[data-cancel]").addEventListener("click", () => finish(false));
+      dialog.addEventListener("cancel", () => { answer = false; });
+      dialog.addEventListener("click", event => {
+        if (event.target === dialog) finish(false);
+      });
+      dialog.addEventListener("close", () => {
+        dialog.remove();
+        resolve(answer);
+      });
+
+      document.body.appendChild(dialog);
+
+      if (typeof dialog.showModal === "function") {
+        dialog.showModal();
+      } else {
+        dialog.setAttribute("open", "");
+      }
+
+      dialog.querySelector(danger ? "[data-cancel]" : "[data-ok]").focus();
+    });
+  }
+
+
+  // Ventana con formulario del diseño del panel (reemplaza prompt()).
+  // fields: [{name,label,type,value,hint,step,min}] -> resuelve con
+  // un objeto {name: valor} o null si se cancela.
+  function formDialog({ title, text = "", fields = [], confirmLabel = "Guardar", icon = "✏️" }) {
+    return new Promise(resolve => {
+      const dialog = document.createElement("dialog");
+      dialog.className = "confirm-dialog confirm-dialog--custom confirm-dialog--form";
+      dialog.innerHTML = `
+        <form class="confirm-dialog__form" novalidate>
+          <div class="confirm-dialog__body">
+            <div class="confirm-dialog__icon" aria-hidden="true">${icon}</div>
+            <h3></h3>
+            <p></p>
+          </div>
+          <div class="confirm-dialog__fields"></div>
+          <p class="confirm-dialog__error" role="alert" hidden></p>
+          <div class="confirm-dialog__actions">
+            <button type="button" class="btn btn-ghost" data-cancel>Cancelar</button>
+            <button type="submit" class="btn btn-primary"></button>
+          </div>
+        </form>
+      `;
+      dialog.querySelector("h3").textContent = title;
+      const pText = dialog.querySelector(".confirm-dialog__body p");
+      pText.textContent = text;
+      pText.hidden = !text;
+      dialog.querySelector('[type="submit"]').textContent = confirmLabel;
+
+      const box = dialog.querySelector(".confirm-dialog__fields");
+      fields.forEach((field, index) => {
+        const wrap = document.createElement("label");
+        wrap.className = "confirm-dialog__field";
+        const span = document.createElement("span");
+        span.textContent = field.label;
+        const input = document.createElement("input");
+        input.type = field.type || "text";
+        input.name = field.name;
+        input.value = field.value ?? "";
+        if (field.step) input.step = field.step;
+        if (field.min !== undefined) input.min = field.min;
+        if (field.maxLength) input.maxLength = field.maxLength;
+        input.autocomplete = "off";
+        wrap.append(span, input);
+        if (field.hint) {
+          const small = document.createElement("small");
+          small.textContent = field.hint;
+          wrap.append(small);
+        }
+        box.append(wrap);
+        input.dataset.index = index;
+      });
+
+      let result = null;
+      const form = dialog.querySelector("form");
+
+      form.addEventListener("submit", event => {
+        event.preventDefault();
+        const values = {};
+        form.querySelectorAll("input").forEach(input => {
+          values[input.name] = input.value;
+        });
+        result = values;
+        dialog.close();
+      });
+      dialog.querySelector("[data-cancel]").addEventListener("click", () => dialog.close());
+      dialog.addEventListener("click", event => {
+        if (event.target === dialog) dialog.close();
+      });
+      dialog.addEventListener("close", () => {
+        dialog.remove();
+        resolve(result);
+      });
+
+      document.body.appendChild(dialog);
+      if (typeof dialog.showModal === "function") dialog.showModal();
+      else dialog.setAttribute("open", "");
+      const first = dialog.querySelector("input");
+      if (first) { first.focus(); first.select?.(); }
+    });
+  }
+
   // =====================================================
   // Llamada a la Edge Function "administrar-empleados".
   // Solo la usa el panel de administrador; el servidor
@@ -3810,7 +3959,21 @@ async function renderEmployees() {
       <td>${escapeHTML(employee.name)}</td>
       <td>${escapeHTML(employee.username || "—")}</td>
       <td>${escapeHTML(employee.email || "—")}</td>
-      <td>${escapeHTML(employee.role || "—")}</td>
+      <td>
+        ${
+          employee.id === currentProfile?.id || !employee.username
+            ? `<span class="role-badge role-badge--${employee.role === "administrador" ? "admin" : "staff"}">${escapeHTML(employee.role || "—")}</span>`
+            : `<select
+                 class="employee-role"
+                 aria-label="Rol de ${escapeHTML(employee.name || "")}"
+                 data-code="${escapeHTML(employee.username || "")}"
+                 data-name="${escapeHTML(employee.name || "")}"
+                 data-current="${escapeHTML(employee.role || "empleado")}">
+                 <option value="empleado" ${employee.role === "empleado" ? "selected" : ""}>empleado</option>
+                 <option value="administrador" ${employee.role === "administrador" ? "selected" : ""}>administrador</option>
+               </select>`
+        }
+      </td>
       <td>
         ${state.sales.filter(
           sale => sale.employeeId === employee.id
@@ -3851,8 +4014,8 @@ async function renderEmployees() {
       <div class="employee-panel__heading">
         <div class="employee-panel__icon" aria-hidden="true">👤</div>
         <div>
-          <h3>Crear cuenta de empleado</h3>
-          <p>Registra un nuevo integrante del equipo de Phone Planet.</p>
+          <h3>Crear cuenta de usuario</h3>
+          <p>Registra un integrante del equipo y elige su rol.</p>
         </div>
       </div>
 
@@ -3897,10 +4060,19 @@ async function renderEmployees() {
           <small>Comparte la contraseña inicial de forma segura.</small>
         </div>
 
+        <div class="employee-field">
+          <label for="empleadoRol">Rol</label>
+          <select id="empleadoRol" name="rol">
+            <option value="empleado">Empleado (ventas y consultas)</option>
+            <option value="administrador">Administrador (acceso total)</option>
+          </select>
+          <small>Tú decides qué permisos tendrá esta cuenta.</small>
+        </div>
+
         <div class="employee-form__actions">
           <button type="submit" class="employee-submit">
             <span aria-hidden="true">＋</span>
-            Crear empleado
+            Crear usuario
           </button>
         </div>
       </form>
@@ -3960,11 +4132,27 @@ form.addEventListener("submit", async event => {
       );
     }
 
+    const rolNuevo = $("empleadoRol").value === "administrador"
+      ? "administrador"
+      : "empleado";
+
+    if (rolNuevo === "administrador" && !await confirmAction({
+      title: "Crear administrador",
+      text: `${nombre} tendrá acceso total: podrá ver todas las ventas, crear y eliminar usuarios y administrar la tienda. ¿Continuar?`,
+      confirmLabel: "Crear administrador",
+      icon: "🛡️"
+    })) {
+      boton.disabled = false;
+      boton.innerHTML = textoOriginal;
+      return;
+    }
+
     const resultado = await administrarEmpleado({
       accion: "crear",
       nombre,
       email,
-      contrasena
+      contrasena,
+      rol: rolNuevo
     });
 
     const codigo =
@@ -3977,8 +4165,8 @@ form.addEventListener("submit", async event => {
 
     notify(
       codigo
-        ? `Empleado creado correctamente. Código: ${codigo}`
-        : "Empleado creado correctamente.",
+        ? `Usuario creado correctamente. Código: ${codigo}`
+        : "Usuario creado correctamente.",
       "success"
     );
   } catch (error) {
@@ -3996,15 +4184,68 @@ form.addEventListener("submit", async event => {
 
 
   $("workspaceContent")
+    .querySelectorAll(".employee-role")
+    .forEach(select => {
+      select.addEventListener("change", async () => {
+        const codigo = select.dataset.code;
+        const nombre = select.dataset.name || codigo;
+        const anterior = select.dataset.current;
+        const nuevo = select.value;
+
+        if (nuevo === anterior) return;
+
+        const aceptado = await confirmAction({
+          title: "Cambiar rol",
+          text: nuevo === "administrador"
+            ? `${nombre} (${codigo}) pasará a administrador y tendrá acceso total al sistema.`
+            : `${nombre} (${codigo}) pasará a empleado y perderá el acceso de administrador.`,
+          confirmLabel: "Cambiar rol",
+          icon: "🛡️"
+        });
+
+        if (!aceptado) {
+          select.value = anterior;
+          return;
+        }
+
+        select.disabled = true;
+
+        try {
+          await administrarEmpleado({
+            accion: "cambiar_rol",
+            codigo_usuario: codigo,
+            rol: nuevo
+          });
+
+          await loadSupabaseState();
+          await renderEmployees();
+
+          notify(`${nombre} ahora es ${nuevo}.`, "success");
+        } catch (error) {
+          console.error("Error al cambiar rol:", error);
+          notify(error.message || "No se pudo cambiar el rol.", "error");
+          select.value = anterior;
+          select.disabled = false;
+        }
+      });
+    });
+
+  $("workspaceContent")
     .querySelectorAll(".employee-toggle")
     .forEach(boton => {
       boton.addEventListener("click", async () => {
         const codigo = boton.dataset.code;
         const activo = boton.dataset.active === "true";
 
-        if (!confirm(
-          `¿Deseas ${activo ? "activar" : "desactivar"} la cuenta ${codigo}?`
-        )) {
+        if (!await confirmAction({
+          title: activo ? "Activar cuenta" : "Desactivar cuenta",
+          text: activo
+            ? `¿Deseas activar la cuenta ${codigo}? Podrá iniciar sesión de nuevo.`
+            : `¿Deseas desactivar la cuenta ${codigo}? No podrá iniciar sesión hasta que la actives.`,
+          confirmLabel: activo ? "Activar" : "Desactivar",
+          danger: !activo,
+          icon: activo ? "✅" : "⏸️"
+        })) {
           return;
         }
 
@@ -4048,10 +4289,12 @@ form.addEventListener("submit", async event => {
           return notify("Este usuario no tiene código asignado.", "error");
         }
 
-        if (!confirm(
-          `¿Eliminar definitivamente a ${nombre} (${codigo})?\n\n` +
-          `Se borrará su cuenta de acceso. Sus ventas y registros se conservan. Esta acción no se puede deshacer.`
-        )) {
+        if (!await confirmAction({
+          title: "Eliminar empleado",
+          text: `¿Eliminar definitivamente a ${nombre} (${codigo})? Se borrará su cuenta de acceso. Sus ventas y registros se conservan. Esta acción no se puede deshacer.`,
+          confirmLabel: "Eliminar",
+          danger: true
+        })) {
           return;
         }
 
