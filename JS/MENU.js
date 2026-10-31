@@ -36,6 +36,13 @@
     "Transferencia Bancolombia"
   ];
 
+  // Medios de los que puede salir dinero en nómina y arriendos.
+  const SPLIT_SOURCES = [
+    { label: "Efectivo", method: "Efectivo" },
+    { label: "Bancolombia", method: "Transferencia Bancolombia" },
+    { label: "Cuenta Bold", method: "Bold" }
+  ];
+
   const LOCAL_NAME = "Phone Planet";
   const LOCAL_NIT = "PENDIENTE POR CONFIGURAR";
   let state = emptyState();
@@ -139,6 +146,7 @@
       products: [],
       sales: [],
       incoming: [],
+      damages: [],
       expenses: [],
       payroll: [],
       rent: [],
@@ -157,17 +165,22 @@
   // Lee una tabla con su columna medio_pago. Si todavía no existe (falta el SQL),
   // se consulta sin ella para no romper el sistema.
   let paymentColumnsMissing = false;
+  let damagesUnavailable = false;
 
-  async function selectWithPayment(table, columns, orderColumn) {
+  async function selectWithPayment(table, columns, orderColumn, extra = "") {
     const run = cols => db.from(table).select(cols).order(orderColumn, { ascending: false });
-    const first = await run(`${columns},medio_pago`);
 
-    if (first.error && first.error.code === "42703") {
-      paymentColumnsMissing = true;
-      return run(columns);
+    // 1) Con medio de pago y columnas nuevas; si faltan, se va quitando lo que no exista.
+    const first = await run(`${columns},medio_pago${extra ? `,${extra}` : ""}`);
+    if (!(first.error && first.error.code === "42703")) return first;
+
+    if (extra) {
+      const second = await run(`${columns},medio_pago`);
+      if (!(second.error && second.error.code === "42703")) return second;
     }
 
-    return first;
+    paymentColumnsMissing = true;
+    return run(columns);
   }
 
   async function loadSupabaseState() {
@@ -195,7 +208,7 @@
   .order("nombre"),
       db.from("ventas").select("id,empleado_id,empleado_nombre,fecha,medio_pago,nota,subtotal,descuento,total,creado_en").order("fecha", { ascending: false }),
       db.from("detalle_ventas").select("id,venta_id,producto_id,codigo_producto,nombre_producto,cantidad,precio_original,descuento_unitario,precio_unitario,total_linea"),
-      selectWithPayment("entradas_mercancia", "id,producto_id,registrado_por,fecha,cantidad,costo_unitario,costo_total,proveedor,observaciones,creado_en", "fecha")
+      selectWithPayment("entradas_mercancia", "id,producto_id,registrado_por,fecha,cantidad,costo_unitario,costo_total,proveedor,observaciones,creado_en", "fecha", "cantidad_danada")
     ]);
     // Si todavía no se ejecutó el SQL que agrega ventas.empleado_nombre,
     // se consulta sin esa columna para no romper el sistema.
@@ -253,8 +266,33 @@
     state.incoming = incoming.map(e => {
       const product = products.find(p => p.id === e.producto_id);
       const profile = profiles.find(p => p.id === e.registrado_por);
-      return { id:e.id, productId:e.producto_id, productName:product?.nombre || "Producto", code:product?.codigo || "—", qty:Number(e.cantidad)||0, unitValue:Number(e.costo_unitario)||0, totalCost:Number(e.costo_total)||0, date:e.fecha, supplier:e.proveedor || "", note:e.observaciones || "", employee:profile?.nombre || "Usuario", paymentMethod:e.medio_pago || "", createdAt:e.creado_en };
+      return { id:e.id, productId:e.producto_id, productName:product?.nombre || "Producto", code:product?.codigo || "—", qty:Number(e.cantidad)||0, unitValue:Number(e.costo_unitario)||0, totalCost:Number(e.costo_total)||0, date:e.fecha, supplier:e.proveedor || "", note:e.observaciones || "", employee:profile?.nombre || "Usuario", paymentMethod:e.medio_pago || "", damagedQty:Number(e.cantidad_danada)||0, createdAt:e.creado_en };
     });
+
+    // Productos dañados (si todavía no existe la tabla, el sistema sigue igual).
+    const damagesR = await db
+      .from("danos_producto")
+      .select("id,fecha,producto_id,codigo_producto,nombre_producto,cantidad,origen,motivo,nota,costo_unitario,precio_venta,registrado_por,creado_en")
+      .order("fecha", { ascending: false })
+      .order("creado_en", { ascending: false });
+
+    damagesUnavailable = Boolean(damagesR.error);
+
+    state.damages = damagesR.error ? [] : damagesR.data.map(d => ({
+      id: d.id,
+      date: d.fecha,
+      productId: d.producto_id,
+      code: d.codigo_producto || "—",
+      productName: d.nombre_producto || "Producto",
+      qty: Number(d.cantidad) || 0,
+      origin: d.origen,
+      reason: d.motivo || "",
+      note: d.nota || "",
+      unitCost: d.costo_unitario === null ? null : Number(d.costo_unitario),
+      salePrice: d.precio_venta === null ? null : Number(d.precio_venta),
+      registeredBy: d.registrado_por,
+      createdAt: d.creado_en
+    }));
 
     state.warranties = warranties.map(w => ({
       id: w.id,
@@ -1012,7 +1050,192 @@ const r = await db.rpc("registrar_entrada_mercancia", {
           </tr>
         `).join("")
       )}
+
+      <div class="form-panel damage-panel">
+        <h3>Producto dañado</h3>
+        <p class="muted">
+          Si un producto salió dañado o lo dañaste, regístralo aquí. Baja
+          del stock y no cuenta como venta.
+        </p>
+
+        <form id="damageForm" class="form-grid">
+          <div class="field">
+            <label for="damageProduct">Producto</label>
+            <select id="damageProduct" required>
+              ${productOptions()}
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="damageQty">Cantidad dañada</label>
+            <input id="damageQty" type="number" min="1" step="1"
+              value="1" required>
+          </div>
+
+          <div class="field">
+            <label for="damageReason">¿Qué pasó?</label>
+            <select id="damageReason" required>
+              <option value="Salió dañado">El producto salió dañado</option>
+              <option value="Lo dañé yo">Lo dañé yo</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="damageDate">Fecha</label>
+            <input id="damageDate" type="date" value="${today()}" required>
+          </div>
+
+          <div class="field wide">
+            <label for="damageNote">Detalle (opcional)</label>
+            <input id="damageNote" maxlength="180"
+              placeholder="Ej. Pantalla rota al instalar el vidrio">
+          </div>
+
+          <div>
+            <button class="btn btn-primary" type="submit"
+              ${noProducts || damagesUnavailable ? "disabled" : ""}>
+              Registrar producto dañado
+            </button>
+          </div>
+        </form>
+
+        ${damagesUnavailable ? `
+          <p class="notice-inline">
+            Falta preparar la base de datos. Ejecuta el script
+            <strong>productos_danados.sql</strong> en Supabase.
+          </p>
+        ` : ""}
+
+        <div class="toolbar damage-toolbar">
+          <h4>Productos dañados recientes</h4>
+          ${role === "administrador" ? `
+            <button class="btn btn-ghost" id="damageExcel" type="button">
+              Descargar Excel
+            </button>
+          ` : ""}
+        </div>
+
+        <div id="damageTable"></div>
+      </div>
     `;
+
+    const damageOriginLabel = origin => origin === "mercancia" ? "Mercancía" : "Venta";
+
+    const damageWho = damage => damage.registeredBy
+      ? employeeName(damage.registeredBy)
+      : "Usuario eliminado";
+
+    const drawDamages = () => {
+      const rows = state.damages.slice(0, 15).map(damage => `
+        <tr>
+          <td>${escapeHTML(damage.date)}</td>
+          <td>${escapeHTML(damage.code)}</td>
+          <td>${escapeHTML(damage.productName)}</td>
+          <td><strong class="stock-low">${damage.qty}</strong></td>
+          <td>${escapeHTML(damage.reason || "—")}</td>
+          <td>${escapeHTML(damageOriginLabel(damage.origin))}</td>
+          ${role === "administrador" ? `<td>${escapeHTML(damageWho(damage))}</td>` : ""}
+          <td>${escapeHTML(damage.note || "—")}</td>
+        </tr>
+      `).join("");
+
+      $("damageTable").innerHTML = table(
+        [
+          "Fecha", "Código", "Producto", "Cantidad", "Motivo", "Origen",
+          ...(role === "administrador" ? ["Registrado por"] : []),
+          "Detalle"
+        ],
+        rows,
+        "Todavía no hay productos dañados registrados."
+      );
+    };
+
+    drawDamages();
+
+    $("damageForm").addEventListener("submit", async event => {
+      event.preventDefault();
+
+      const button = event.currentTarget.querySelector('button[type="submit"]');
+      const product = state.products.find(item => item.id === $("damageProduct").value);
+      const qty = Number($("damageQty").value);
+
+      if (!product || !Number.isInteger(qty) || qty < 1) {
+        return notify("Elige el producto y una cantidad válida.", "error");
+      }
+
+      if (qty > product.stock) {
+        return notify(
+          `Solo hay ${product.stock} unidades de ${product.name} en stock.`,
+          "error"
+        );
+      }
+
+      const originalText = button.textContent;
+      button.disabled = true;
+      button.textContent = "Registrando...";
+
+      try {
+        const result = await db.rpc("registrar_dano_producto", {
+          p_producto_id: product.id,
+          p_cantidad: qty,
+          p_motivo: $("damageReason").value,
+          p_nota: $("damageNote").value.trim() || null,
+          p_fecha: $("damageDate").value || today()
+        });
+
+        if (result.error) throw result.error;
+
+        // El carrito de la venta en curso no se toca: solo se refrescan datos.
+        await loadSupabaseState();
+        renderDashboard();
+        drawDamages();
+
+        $("damageQty").value = "1";
+        $("damageNote").value = "";
+        $("damageProduct").innerHTML = productOptions();
+
+        notify(
+          `Registrado: ${qty} ${qty === 1 ? "unidad dañada" : "unidades dañadas"} de ${product.name}. Stock actualizado.`,
+          "success"
+        );
+      } catch (error) {
+        console.error("Error registrando producto dañado:", error);
+        notify(
+          describeSupabaseError(error, "No se pudo registrar el producto dañado"),
+          "error"
+        );
+      } finally {
+        button.disabled = false;
+        button.textContent = originalText;
+      }
+    });
+
+    if ($("damageExcel")) {
+      $("damageExcel").addEventListener("click", () => {
+        downloadExcel(`PhonePlanet_ProductosDanados_${today()}.xlsx`, [
+          dataSheet("Dañados", [
+            { header: "Fecha", width: 12, type: "date" },
+            { header: "Código", width: 14 },
+            { header: "Producto", width: 34 },
+            { header: "Cantidad", width: 10, type: "int" },
+            { header: "Motivo", width: 18 },
+            { header: "Origen", width: 14 },
+            { header: "Registrado por", width: 24 },
+            { header: "Valor al costo", width: 16, type: "money" },
+            { header: "Valor de venta", width: 16, type: "money" },
+            { header: "Detalle", width: 34 }
+          ], state.damages.map(damage => [
+            damage.date, damage.code, damage.productName, damage.qty,
+            damage.reason, damageOriginLabel(damage.origin), damageWho(damage),
+            damage.unitCost === null ? "" : damage.unitCost * damage.qty,
+            damage.salePrice === null ? "" : damage.salePrice * damage.qty,
+            damage.note || ""
+          ]), {
+            3: state.damages.reduce((sum, damage) => sum + damage.qty, 0)
+          })
+        ]);
+      });
+    }
 
     const codeInput = $("saleCode");
 
@@ -2281,6 +2504,15 @@ $("shareClosing").addEventListener("click", async () => {
           </div>
 
           <div class="field">
+            <label for="incomingDamaged">Unidades dañadas (opcional)</label>
+            <input id="incomingDamaged" type="number" min="0"
+              step="1" value="0" inputmode="numeric">
+            <small class="field-hint">
+              Si llegaron dañadas: se pagan, pero no suman al stock.
+            </small>
+          </div>
+
+          <div class="field">
             <label for="incomingTotal">Valor total de la entrada</label>
             <input id="incomingTotal" type="text" value="$ 0"
               readonly aria-live="polite">
@@ -2356,6 +2588,7 @@ $("shareClosing").addEventListener("click", async () => {
       const qty = Number($("incomingQty").value);
       const unitValue = Number($("incomingUnitValue").value);
       const paymentMethod = $("incomingPaymentMethod").value;
+      const damagedQty = Number($("incomingDamaged").value || 0);
 
       if (
         !product ||
@@ -2374,13 +2607,20 @@ $("shareClosing").addEventListener("click", async () => {
         return notify("Selecciona un medio de pago válido.", "error");
       }
 
+      if (!Number.isInteger(damagedQty) || damagedQty < 0 || damagedQty > qty) {
+        return notify(
+          "Las unidades dañadas deben ser un número entre 0 y la cantidad recibida.",
+          "error"
+        );
+      }
+
       const originalText = button.textContent;
       button.disabled = true;
       button.textContent = "Registrando...";
 
       try {
         // Se guarda directamente en Supabase y solo se confirma si funcionó.
-        const result = await db.rpc("registrar_entrada_mercancia", {
+        const params = {
           p_producto_id: product.id,
           p_fecha: $("incomingDate").value || today(),
           p_cantidad: qty,
@@ -2388,7 +2628,13 @@ $("shareClosing").addEventListener("click", async () => {
           p_proveedor: $("incomingSupplier").value.trim() || null,
           p_observaciones: $("incomingNote").value.trim() || null,
           p_medio_pago: paymentMethod
-        });
+        };
+
+        // Solo se envía si hay dañadas (así funciona aunque el script SQL
+        // de productos dañados todavía no se haya ejecutado).
+        if (damagedQty > 0) params.p_cantidad_danada = damagedQty;
+
+        const result = await db.rpc("registrar_entrada_mercancia", params);
 
         if (result.error) throw result.error;
 
@@ -2422,7 +2668,9 @@ $("shareClosing").addEventListener("click", async () => {
         renderDashboard();
         renderIncomingForm();
         notify(
-          `Entrada registrada. Total de compra: ${money(qty * unitValue)}. Stock actualizado.`,
+          damagedQty > 0
+            ? `Entrada registrada. Total de compra: ${money(qty * unitValue)}. Stock +${qty - damagedQty} (${damagedQty} dañadas no se sumaron).`
+            : `Entrada registrada. Total de compra: ${money(qty * unitValue)}. Stock actualizado.`,
           "success"
         );
       } catch (error) {
@@ -4443,6 +4691,7 @@ form.addEventListener("submit", async event => {
           <td>${escapeHTML(entry.code)}</td>
           <td>${escapeHTML(entry.productName)}</td>
           <td>${entry.qty}</td>
+          <td>${entry.damagedQty ? `<strong class="stock-low">${entry.damagedQty}</strong>` : "0"}</td>
           <td>${money(entry.unitValue || 0)}</td>
           <td>${money(entryTotal(entry))}</td>
           <td>${escapeHTML(entry.paymentMethod || "—")}</td>
@@ -4456,7 +4705,7 @@ form.addEventListener("submit", async event => {
         ${table(
           [
             "Fecha", "Registrado por", "Código", "Producto",
-            "Cantidad", "Valor unitario", "Valor total", "Medio de pago",
+            "Cantidad", "Dañadas", "Valor unitario", "Valor total", "Medio de pago",
             "Proveedor", "Observaciones"
           ],
           rows,
@@ -4475,7 +4724,7 @@ form.addEventListener("submit", async event => {
     $("incomingExcel").addEventListener("click", () => {
       const rows = shown.slice().reverse().map(entry => [
         entry.date, entry.employee, entry.code, entry.productName, entry.qty,
-        entry.unitValue || 0, entryTotal(entry),
+        entry.damagedQty || 0, entry.unitValue || 0, entryTotal(entry),
         entry.paymentMethod || "Sin registrar", entry.supplier || "", entry.note || ""
       ]);
 
@@ -4486,12 +4735,13 @@ form.addEventListener("submit", async event => {
           { header: "Código", width: 14 },
           { header: "Producto", width: 34 },
           { header: "Cantidad", width: 10, type: "int" },
+          { header: "Dañadas", width: 10, type: "int" },
           { header: "Valor unitario", width: 16, type: "money" },
           { header: "Valor total", width: 16, type: "money" },
           { header: "Medio de pago", width: 24 },
           { header: "Proveedor", width: 24 },
           { header: "Observaciones", width: 30 }
-        ], rows, { 6: sumBy(shown, entryTotal) })
+        ], rows, { 7: sumBy(shown, entryTotal) })
       ]);
     });
 
@@ -4506,6 +4756,8 @@ form.addEventListener("submit", async event => {
     const records = state[kind];
     const label = { expenses: "Gastos", payroll: "Nómina", rent: "Arriendos" }[kind];
     const isPayroll = kind === "payroll";
+    // Nómina y arriendos: se pregunta de cuáles medios salió el dinero.
+    const isSplit = kind === "payroll" || kind === "rent";
 
     $("workspaceContent").innerHTML = `
       <div class="form-panel">
@@ -4525,19 +4777,51 @@ form.addEventListener("submit", async event => {
             <input id="moneyConcept" maxlength="140" required>
           </div>
 
-          <div class="field">
-            <label for="moneyAmount">${amountLabel} (COP)</label>
-            <input id="moneyAmount" type="number" min="1"
-              step="1" required>
-          </div>
+          ${isSplit ? `
+            <fieldset class="split-pay wide">
+              <legend>¿De qué medios se sacó el dinero?</legend>
+              <p class="muted">
+                Marca cada medio del que salió plata y escribe el valor.
+                Puedes usar uno, dos o los tres.
+              </p>
 
-          <div class="field">
-            <label for="moneyPayment">Medio de pago</label>
-            <select id="moneyPayment" required>
-              <option value="">Selecciona un medio de pago</option>
-              ${PAYMENT_METHODS.map(method => `<option value="${method}">${method}</option>`).join("")}
-            </select>
-          </div>
+              ${SPLIT_SOURCES.map((source, index) => `
+                <div class="split-pay__row" data-split="${index}">
+                  <label class="split-pay__check">
+                    <input type="checkbox" id="splitUse${index}">
+                    <span>${source.label}</span>
+                  </label>
+                  <input
+                    class="split-pay__amount"
+                    id="splitAmount${index}"
+                    type="number" min="1" step="1"
+                    placeholder="Valor (COP)"
+                    aria-label="Valor sacado de ${escapeHTML(source.label)}"
+                    disabled
+                  >
+                </div>
+              `).join("")}
+
+              <div class="split-pay__total">
+                <span>${amountLabel} total</span>
+                <strong id="splitTotal">$ 0</strong>
+              </div>
+            </fieldset>
+          ` : `
+            <div class="field">
+              <label for="moneyAmount">${amountLabel} (COP)</label>
+              <input id="moneyAmount" type="number" min="1"
+                step="1" required>
+            </div>
+
+            <div class="field">
+              <label for="moneyPayment">Medio de pago</label>
+              <select id="moneyPayment" required>
+                <option value="">Selecciona un medio de pago</option>
+                ${PAYMENT_METHODS.map(method => `<option value="${method}">${method}</option>`).join("")}
+              </select>
+            </div>
+          `}
 
           <div class="field">
             <label for="moneyDate">Fecha</label>
@@ -4626,32 +4910,91 @@ form.addEventListener("submit", async event => {
       ]);
     });
 
+    // Habilita el valor de cada medio marcado y suma el total.
+    function syncSplitFields() {
+      let total = 0;
+
+      SPLIT_SOURCES.forEach((source, index) => {
+        const check = $(`splitUse${index}`);
+        const amount = $(`splitAmount${index}`);
+        if (!check || !amount) return;
+
+        amount.disabled = !check.checked;
+        if (!check.checked) amount.value = "";
+        total += check.checked ? (Number(amount.value) || 0) : 0;
+
+        check.closest(".split-pay__row").classList.toggle("is-on", check.checked);
+      });
+
+      const totalElement = $("splitTotal");
+      if (totalElement) totalElement.textContent = money(total);
+    }
+
+    if (isSplit) {
+      SPLIT_SOURCES.forEach((source, index) => {
+        $(`splitUse${index}`).addEventListener("change", () => {
+          syncSplitFields();
+          if ($(`splitUse${index}`).checked) $(`splitAmount${index}`).focus();
+        });
+        $(`splitAmount${index}`).addEventListener("input", syncSplitFields);
+      });
+    }
+
     $("moneyForm").addEventListener("submit", event => {
       event.preventDefault();
 
       const concept = $("moneyConcept").value.trim();
-      const amount = Number($("moneyAmount").value);
-      const paymentMethod = $("moneyPayment").value;
 
-      if (!concept || !Number.isFinite(amount) || amount <= 0) {
-        return notify(
-          "Ingresa un concepto y un valor válido.",
-          "error"
-        );
+      if (!concept) {
+        return notify("Ingresa el concepto.", "error");
       }
 
-      if (!PAYMENT_METHODS.includes(paymentMethod)) {
-        return notify("Selecciona el medio de pago.", "error");
+      // Cada pago se guarda con su medio: uno por cada medio usado.
+      let payments = [];
+
+      if (isSplit) {
+        payments = SPLIT_SOURCES
+          .map((source, index) => ({
+            method: source.method,
+            used: $(`splitUse${index}`).checked,
+            amount: Number($(`splitAmount${index}`).value)
+          }))
+          .filter(item => item.used);
+
+        if (!payments.length) {
+          return notify("Marca al menos un medio del que salió el dinero.", "error");
+        }
+
+        if (payments.some(item => !Number.isFinite(item.amount) || item.amount <= 0)) {
+          return notify("Escribe el valor de cada medio marcado.", "error");
+        }
+      } else {
+        const amount = Number($("moneyAmount").value);
+        const paymentMethod = $("moneyPayment").value;
+
+        if (!Number.isFinite(amount) || amount <= 0) {
+          return notify("Ingresa un valor válido.", "error");
+        }
+
+        if (!PAYMENT_METHODS.includes(paymentMethod)) {
+          return notify("Selecciona el medio de pago.", "error");
+        }
+
+        payments = [{ method: paymentMethod, amount }];
       }
 
-      records.push({
-        id: uid(kind.toUpperCase()),
-        concept,
-        amount,
-        paymentMethod,
-        employeeId: isPayroll ? $("payrollEmployee").value : null,
-        date: $("moneyDate").value || today(),
-        createdAt: new Date().toISOString()
+      const recordDate = $("moneyDate").value || today();
+
+      payments.forEach(payment => {
+        records.push({
+          id: uid(kind.toUpperCase()),
+          concept,
+          amount: payment.amount,
+          paymentMethod: payment.method,
+          employeeId: isPayroll ? $("payrollEmployee").value : null,
+          date: recordDate,
+          createdAt: new Date().toISOString()
+        });
       });
 
       if (!saveState()) return;
@@ -4659,8 +5002,14 @@ form.addEventListener("submit", async event => {
       renderRows();
       $("moneyForm").reset();
       $("moneyDate").value = today();
+      if (isSplit) syncSplitFields();
 
-      notify("Registro guardado.", "success");
+      notify(
+        payments.length > 1
+          ? `Registro guardado en ${payments.length} medios de pago.`
+          : "Registro guardado.",
+        "success"
+      );
     });
   }
 
