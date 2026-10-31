@@ -744,6 +744,7 @@ const r = await db.rpc("registrar_entrada_mercancia", {
     }
 
     activeModule = id;
+    stockQuery = "";
     $("moduleMenu").hidden = true;
     $("dashboardStats").hidden = true;
     $("workspace").hidden = false;
@@ -780,8 +781,29 @@ const r = await db.rpc("registrar_entrada_mercancia", {
       `).join("");
   }
 
+  // Búsqueda en la tabla de stock (sin tildes ni mayúsculas).
+  let stockQuery = "";
+
+  function normalizeSearch(value) {
+    return String(value ?? "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .trim();
+  }
+
+  // Los productos siempre se muestran por código, de menor a mayor
+  // (orden "natural": FUN-2 va antes que FUN-10).
+  const codeCollator = new Intl.Collator("es", { numeric: true, sensitivity: "base" });
+
+  function productsByCode() {
+    return [...state.products].sort((a, b) =>
+      codeCollator.compare(String(a.code || ""), String(b.code || ""))
+    );
+  }
+
   function productOptions() {
-    return state.products.map(product => `
+    return productsByCode().map(product => `
       <option value="${escapeHTML(product.id)}">
         ${escapeHTML(product.code)}
         · ${escapeHTML(product.name)}
@@ -2303,7 +2325,7 @@ $("shareClosing").addEventListener("click", async () => {
 
       ${table(
         ["Código", "Producto", "Existencias"],
-        state.products.map(product => `
+        productsByCode().map(product => `
           <tr>
             <td>${escapeHTML(product.code)}</td>
             <td>${escapeHTML(product.name)}</td>
@@ -2982,6 +3004,25 @@ $("shareClosing").addEventListener("click", async () => {
         descuentos. El costo de entrada suma las entradas registradas.
       </p>
 
+      <div class="search-bar" role="search">
+        <svg class="search-bar__icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/>
+          <path d="M20 20l-3.5-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <input
+          id="stockSearch"
+          class="search-bar__input"
+          type="search"
+          maxlength="80"
+          placeholder="Buscar por código, nombre o descripción"
+          aria-label="Buscar productos en el stock"
+          autocomplete="off"
+          value="${escapeHTML(stockQuery)}"
+        >
+        <button type="button" id="stockSearchClear" class="search-bar__clear" aria-label="Borrar búsqueda" hidden>&times;</button>
+        <span id="stockSearchCount" class="search-bar__count" aria-live="polite"></span>
+      </div>
+
       <div id="stockTable"></div>
     `;
 
@@ -3037,6 +3078,30 @@ $("shareClosing").addEventListener("click", async () => {
       notify("Producto creado correctamente.", "success");
       renderDashboard();
       renderStock();
+    });
+
+    const stockSearch = $("stockSearch");
+    const stockSearchClear = $("stockSearchClear");
+
+    stockSearch.addEventListener("input", () => {
+      stockQuery = stockSearch.value;
+      renderStockTable();
+    });
+
+    stockSearch.addEventListener("keydown", event => {
+      if (event.key === "Escape" && stockSearch.value) {
+        event.preventDefault();
+        stockSearch.value = "";
+        stockQuery = "";
+        renderStockTable();
+      }
+    });
+
+    stockSearchClear.addEventListener("click", () => {
+      stockSearch.value = "";
+      stockQuery = "";
+      renderStockTable();
+      stockSearch.focus();
     });
 
     renderStockTable();
@@ -3199,7 +3264,7 @@ $("shareClosing").addEventListener("click", async () => {
     });
 
     $("stockExport").addEventListener("click", () => {
-      const rows = state.products.map(product => {
+      const rows = productsByCode().map(product => {
         const reorder = Number(product.reorderLevel ?? 5);
         return [
           product.code, product.name, product.description || product.name, product.stock,
@@ -3390,7 +3455,29 @@ $("shareClosing").addEventListener("click", async () => {
   }
 
   function renderStockTable() {
-    const rows = state.products.map(product => {
+    const terms = normalizeSearch(stockQuery).split(/\s+/).filter(Boolean);
+    const allProducts = productsByCode();
+    const visibleProducts = terms.length
+      ? allProducts.filter(product => {
+          const text = normalizeSearch(
+            `${product.code} ${product.name} ${product.description}`
+          );
+          return terms.every(term => text.includes(term));
+        })
+      : allProducts;
+
+    const counter = $("stockSearchCount");
+    const clearButton = $("stockSearchClear");
+
+    if (counter) {
+      counter.textContent = terms.length
+        ? `${visibleProducts.length} de ${allProducts.length}`
+        : `${allProducts.length} productos`;
+    }
+
+    if (clearButton) clearButton.hidden = !terms.length;
+
+    const rows = visibleProducts.map(product => {
       const salesTotal = productSalesTotal(product.id);
       const incomingCost = productIncomingCost(product.id);
       const reorder = Number(product.reorderLevel ?? 5);
@@ -3434,7 +3521,10 @@ $("shareClosing").addEventListener("click", async () => {
         "¿Hacer pedido?",
         "Acciones"
       ],
-      rows
+      rows,
+      terms.length
+        ? `No hay productos que coincidan con "${stockQuery.trim()}".`
+        : "Todavía no hay productos."
     );
 
     $("stockTable")
