@@ -2720,13 +2720,6 @@ $("shareClosing").addEventListener("click", async () => {
         return notify("Selecciona la imagen del producto.", "error");
       }
 
-      if (state.catalog.some(item =>
-        item.id !== editingCatalogId &&
-        item.reference.toLowerCase() === reference.toLowerCase()
-      )) {
-        return notify("Ya existe un producto en la tienda con esa referencia.", "error");
-      }
-
       const originalText = submit.textContent;
       submit.disabled = true;
       submit.textContent = file ? "Subiendo imagen..." : "Guardando...";
@@ -2772,8 +2765,8 @@ $("shareClosing").addEventListener("click", async () => {
 
         if (error.code === "42P01" || error.code === "42703" || /does not exist|schema cache/i.test(message)) {
           message = "Falta preparar el catálogo en Supabase. Ejecuta el script catalogo_tienda.sql.";
-        } else if (error.code === "23505") {
-          message = "Ya existe un producto en la tienda con esa referencia.";
+        } else if (error.code === "23505" && /referencia/i.test(message)) {
+          message = "Tu base de datos todavía no permite referencias repetidas. Ejecuta el script permitir_referencia_repetida.sql.";
         } else if (error.code === "42501" || /row-level security/i.test(message)) {
           message = "Supabase no permite esta acción con tu cuenta. Solo los administradores pueden administrar el catálogo.";
         }
