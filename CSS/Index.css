@@ -244,6 +244,11 @@ img { max-width: 100%; }
 .detalle-producto { padding: 16px; display: flex; flex-direction: column; flex: 1; }
 .categoria-producto { color: var(--suave); font-size: 13px; }
 .nombre-producto { margin-top: 2px; min-height: 2.7em; color: #fff; font-size: 17px; font-weight: 600; line-height: 1.3; font-family: var(--fuente-titulo); }
+.descripcion-producto {
+    margin-top: 6px; color: var(--suave); font-size: 13px; line-height: 1.45;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.estado-carga { grid-column: 1 / -1; padding: 40px 16px; text-align: center; color: var(--suave); }
 .precio-producto { margin: 8px 0 14px; color: #fff; font-size: 20px; font-weight: 700; }
 .opciones-producto { display: flex; flex-direction: column; gap: 12px; margin-top: auto; }
 .etiqueta-opcion { color: var(--suave); font-size: 13px; }
