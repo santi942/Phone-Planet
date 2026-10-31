@@ -1,4 +1,3 @@
-
 /* =========================================
    PHONE PLANET - INICIO DE SESIÓN
    Compatible con la Edge Function: login-codigo
@@ -6,6 +5,13 @@
 
 document.addEventListener("DOMContentLoaded", () => {
     "use strict";
+
+    // Anti-clickjacking: la página no debe poder abrirse dentro de otro sitio.
+    if (window.top !== window.self) {
+        document.documentElement.style.display = "none";
+        try { window.top.location = window.self.location; } catch (_) { /* bloqueado */ }
+        return;
+    }
 
     const formulario = document.getElementById("formularioLogin");
     const campoCodigo = document.getElementById("correo");
@@ -31,6 +37,25 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let procesando = false;
     let modoRegistro = false;
+
+    // Pausa creciente tras intentos fallidos. Frena a quien prueba claves a
+    // mano desde esta página; el límite real debe aplicarse también en el
+    // servidor (función bright-endpoint).
+    const MAX_INTENTOS = 5;
+    let intentosFallidos = 0;
+    let bloqueadoHasta = 0;
+
+    function segundosBloqueo() {
+        return Math.max(0, Math.ceil((bloqueadoHasta - Date.now()) / 1000));
+    }
+
+    function registrarFallo() {
+        intentosFallidos += 1;
+        if (intentosFallidos >= MAX_INTENTOS) {
+            const pausa = Math.min(300, 15 * 2 ** (intentosFallidos - MAX_INTENTOS));
+            bloqueadoHasta = Date.now() + pausa * 1000;
+        }
+    }
 
     function mostrarMensaje(texto) {
         if (mensaje) mensaje.textContent = texto;
@@ -93,6 +118,10 @@ document.addEventListener("DOMContentLoaded", () => {
             return "No se encontró bright-endpoint. Verifica que la función esté desplegada.";
         }
 
+        if (texto.includes("demasiados intentos")) {
+            return error.message;
+        }
+
         if (
             texto.includes("código o contraseña incorrectos") ||
             texto.includes("invalid login credentials") ||
@@ -101,8 +130,8 @@ document.addEventListener("DOMContentLoaded", () => {
             return "Código o contraseña incorrectos.";
         }
 
-        return error?.message ||
-            "No se pudo iniciar sesión. Revisa la consola para conocer el error.";
+        // No se muestran detalles internos del servidor a quien intenta entrar.
+        return "No se pudo iniciar sesión. Verifica tus datos e inténtalo de nuevo.";
     }
 
     if (enlaceRegistro) {
@@ -151,6 +180,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (procesando) return;
 
+        if (segundosBloqueo() > 0) {
+            mostrarMensaje(
+                `Demasiados intentos. Espera ${segundosBloqueo()} segundos e inténtalo de nuevo.`
+            );
+            return;
+        }
+
         const supabase = obtenerCliente();
         if (!supabase) return;
 
@@ -159,6 +195,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (!codigo || !contrasena) {
             mostrarMensaje("Escribe tu código de usuario y contraseña.");
+            return;
+        }
+
+        if (codigo.length > 20 || contrasena.length > 128) {
+            mostrarMensaje("Código o contraseña incorrectos.");
             return;
         }
 
@@ -192,8 +233,31 @@ document.addEventListener("DOMContentLoaded", () => {
                     error
                 );
 
+                // La función responde { error: "..." } con su código HTTP.
+                let mensajeServidor = "";
+                let estado = 0;
+
+                try {
+                    estado = error.context?.status || 0;
+                    const cuerpo = await error.context.clone().json();
+                    mensajeServidor = String(cuerpo?.error || "");
+                } catch (_) {
+                    // Sin cuerpo JSON: error de red u otro.
+                }
+
+                if (estado === 429) {
+                    // Pausa impuesta por el servidor.
+                    bloqueadoHasta = Date.now() + 60 * 1000;
+                    throw new Error(
+                        mensajeServidor ||
+                        "Demasiados intentos. Espera unos minutos."
+                    );
+                }
+
                 throw new Error(
-                    error.message || "Error al llamar bright-endpoint."
+                    mensajeServidor ||
+                    error.message ||
+                    "Error al llamar bright-endpoint."
                 );
             }
 
@@ -242,6 +306,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 );
             }
 
+            intentosFallidos = 0;
+            bloqueadoHasta = 0;
+
             mostrarMensaje(
                 "Inicio de sesión exitoso. Abriendo el menú..."
             );
@@ -256,6 +323,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 error
             );
 
+            registrarFallo();
             mostrarMensaje(traducirError(error));
 
         } finally {
