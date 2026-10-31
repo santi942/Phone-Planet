@@ -1,9 +1,17 @@
 /* =========================================
-   PHONE PLANET - CATALOGO Y CARRITO
+   PHONE PLANET - CATALOGO, CARRITO Y PEDIDO POR WHATSAPP
    El carrito se conserva en localStorage.
 ========================================= */
 
 "use strict";
+
+/* =========================================
+   CONFIGURACIÓN - CAMBIA SOLO ESTO
+   Número de WhatsApp que recibirá los pedidos.
+   Escríbelo con el código de país y sin +, espacios ni guiones.
+   Colombia = 57. Ejemplo: "573001234567"
+========================================= */
+const WHATSAPP_NUMERO = "";
 
 const productos = [
     {
@@ -116,13 +124,13 @@ function cargarCarrito() {
         return datos.filter(item =>
             item && typeof item.id === "string" &&
             typeof item.color === "string" &&
-            Number.isFinite(Number(item.precio)) &&
+            productos.some(p => p.id === item.id) &&
             Number.isInteger(Number(item.cantidad)) &&
             Number(item.cantidad) > 0
         ).map(item => ({
             id: item.id,
             color: item.color,
-            precio: Number(item.precio),
+            precio: productos.find(p => p.id === item.id).precio,
             cantidad: Math.min(10, Number(item.cantidad))
         }));
     } catch {
@@ -189,6 +197,7 @@ function renderizarProductos() {
                      onerror="this.onerror=null;this.src='IMG/fondo-galactico.png';">
             </div>
             <div class="detalle-producto">
+                <span class="categoria-producto">${escaparHTML(producto.categoria)}</span>
                 <h3 class="nombre-producto">${escaparHTML(producto.nombre)}</h3>
                 <p class="precio-producto">${formatoCOP(producto.precio)}</p>
                 <div class="opciones-producto">
@@ -283,8 +292,7 @@ function renderizarCarrito() {
         listaCarrito.appendChild(fila);
     });
 
-    const subtotal = carrito.reduce((suma, item) => suma + item.precio * item.cantidad, 0);
-    subtotalCarrito.textContent = formatoCOP(subtotal);
+    subtotalCarrito.textContent = formatoCOP(calcularSubtotal());
     porId("vaciar-carrito").disabled = carrito.length === 0;
 }
 
@@ -382,23 +390,153 @@ document.addEventListener("keydown", evento => {
 });
 porId("vaciar-carrito").addEventListener("click", vaciarCarrito);
 
-/* PEDIDO: demostración sin pasarela de pago */
-porId("boton-pagar").addEventListener("click", () => {
+/* PEDIDO POR WHATSAPP */
+const dialogoPedido = porId("dialogo-pedido");
+const formPedido = porId("form-pedido");
+const errorPedido = porId("pedido-error");
+const CLAVE_CLIENTE = "phonePlanetCliente";
+
+const calcularSubtotal = () => carrito.reduce((suma, item) => suma + item.precio * item.cantidad, 0);
+
+function numeroWhatsAppValido() {
+    return /^\d{10,15}$/.test(WHATSAPP_NUMERO);
+}
+
+// Quita los caracteres que WhatsApp interpreta como formato (*, _, ~, `).
+function limpiarTexto(valor) {
+    return String(valor).replace(/[*_~`]/g, "").replace(/\s+/g, " ").trim();
+}
+
+function mostrarErrorPedido(mensaje) {
+    errorPedido.textContent = mensaje;
+    errorPedido.hidden = !mensaje;
+}
+
+function abrirPedido() {
     if (carrito.length === 0) {
         mostrarToast("Tu carrito está vacío. Agrega productos primero.");
         return;
     }
+    if (!numeroWhatsAppValido()) {
+        console.error("Phone Planet: falta configurar WHATSAPP_NUMERO en JS/TIENDA.js (ej. \"573001234567\").");
+        mostrarToast("Los pedidos por WhatsApp aún no están disponibles.");
+        return;
+    }
 
-    const lineas = carrito.map(item => {
+    try {
+        const guardado = JSON.parse(localStorage.getItem(CLAVE_CLIENTE) || "{}");
+        ["nombre", "ciudad", "telefono", "direccion"].forEach(campo => {
+            if (guardado[campo] && !formPedido.elements[campo].value) {
+                formPedido.elements[campo].value = String(guardado[campo]).slice(0, 120);
+            }
+        });
+    } catch { /* sin datos guardados */ }
+
+    mostrarErrorPedido("");
+    formPedido.querySelectorAll("[aria-invalid]").forEach(campo => campo.removeAttribute("aria-invalid"));
+    porId("pedido-total").textContent = formatoCOP(calcularSubtotal());
+    document.body.classList.add("pedido-abierto");
+    dialogoPedido.showModal();
+}
+
+function cerrarPedido() {
+    if (dialogoPedido.open) dialogoPedido.close();
+}
+
+dialogoPedido.addEventListener("close", () => document.body.classList.remove("pedido-abierto"));
+porId("cerrar-pedido").addEventListener("click", cerrarPedido);
+porId("cancelar-pedido").addEventListener("click", cerrarPedido);
+
+function construirMensaje(cliente) {
+    const lineas = carrito.map((item, indice) => {
         const producto = productos.find(p => p.id === item.id);
-        return `${producto ? producto.nombre : item.id} | Color: ${item.color} | Cantidad: ${item.cantidad} | ${formatoCOP(item.precio * item.cantidad)}`;
+        const nombre = producto ? producto.nombre : item.id;
+        return `${indice + 1}. ${nombre} - Color: ${item.color} - ${item.cantidad} x ${formatoCOP(item.precio)} = ${formatoCOP(item.precio * item.cantidad)}`;
     });
-    const subtotal = carrito.reduce((suma, item) => suma + item.precio * item.cantidad, 0);
-    const resumen = `PEDIDO PHONE PLANET\n\n${lineas.join("\n")}\n\nSubtotal: ${formatoCOP(subtotal)}\n\nEste resumen es local. Para recibir pedidos reales, configura un canal de contacto o un sistema de pago.`;
 
-    // No se vacía el carrito ni se simula un pago real.
-    window.alert(resumen);
+    const partes = [
+        "*Nuevo pedido - Phone Planet*",
+        "",
+        `*Cliente:* ${cliente.nombre}`,
+        `*Celular:* ${cliente.telefono}`,
+        `*Ciudad:* ${cliente.ciudad}`,
+        `*Dirección:* ${cliente.direccion}`,
+        "",
+        "*Pedido:*",
+        ...lineas,
+        "",
+        `*Total productos:* ${formatoCOP(calcularSubtotal())}`
+    ];
+
+    if (cliente.notas) partes.push("", `*Notas:* ${cliente.notas}`);
+    partes.push("", "El envío y el pago los coordinamos por este chat.");
+
+    return partes.join("\n");
+}
+
+function enviarPorWhatsApp(mensaje) {
+    const enlace = document.createElement("a");
+    enlace.href = `https://wa.me/${WHATSAPP_NUMERO}?text=${encodeURIComponent(mensaje)}`;
+    enlace.target = "_blank";
+    enlace.rel = "noopener noreferrer";
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+}
+
+formPedido.addEventListener("submit", evento => {
+    evento.preventDefault();
+
+    const datos = {
+        nombre: limpiarTexto(formPedido.elements.nombre.value),
+        ciudad: limpiarTexto(formPedido.elements.ciudad.value),
+        telefono: formPedido.elements.telefono.value.replace(/[^\d+]/g, ""),
+        direccion: limpiarTexto(formPedido.elements.direccion.value),
+        notas: limpiarTexto(formPedido.elements.notas.value)
+    };
+
+    const errores = {
+        nombre: datos.nombre.length < 3 ? "Escribe tu nombre completo." : "",
+        telefono: datos.telefono.replace(/\D/g, "").length < 7 ? "Escribe un número de celular válido." : "",
+        ciudad: datos.ciudad.length < 2 ? "Escribe tu ciudad." : "",
+        direccion: datos.direccion.length < 5 ? "Escribe la dirección de entrega." : ""
+    };
+
+    ["nombre", "telefono", "ciudad", "direccion"].forEach(campo => {
+        if (errores[campo]) formPedido.elements[campo].setAttribute("aria-invalid", "true");
+        else formPedido.elements[campo].removeAttribute("aria-invalid");
+    });
+
+    const primerError = Object.keys(errores).find(campo => errores[campo]);
+    if (primerError) {
+        mostrarErrorPedido(errores[primerError]);
+        formPedido.elements[primerError].focus();
+        return;
+    }
+
+    if (carrito.length === 0) {
+        mostrarErrorPedido("Tu carrito está vacío.");
+        return;
+    }
+
+    mostrarErrorPedido("");
+
+    try {
+        localStorage.setItem(CLAVE_CLIENTE, JSON.stringify({
+            nombre: datos.nombre,
+            ciudad: datos.ciudad,
+            telefono: datos.telefono,
+            direccion: datos.direccion
+        }));
+    } catch { /* no se pudo recordar los datos */ }
+
+    enviarPorWhatsApp(construirMensaje(datos));
+    cerrarPedido();
+    mostrarToast("Se abrió WhatsApp. Envía el mensaje para confirmar tu pedido.");
 });
+
+porId("boton-pagar").addEventListener("click", abrirPedido);
+porId("portada-carrito").addEventListener("click", abrirCarrito);
 
 /* MENÚ MÓVIL */
 const botonMenu = porId("menu-movil");
