@@ -2033,6 +2033,46 @@ if (!PAYMENT_METHODS.includes(paymentMethod)) {
 
  
 
+  // =====================================================
+  // Llamada a la Edge Function "administrar-empleados".
+  // Solo la usa el panel de administrador; el servidor
+  // vuelve a validar que quien llama sea administrador.
+  // =====================================================
+  async function administrarEmpleado(payload) {
+    if (role !== "administrador") {
+      throw new Error("Solo un administrador puede realizar esta acción.");
+    }
+
+    const { data: sesion } = await db.auth.getSession();
+    if (!sesion?.session) {
+      throw new Error("Tu sesión expiró. Inicia sesión nuevamente.");
+    }
+
+    const { data, error } = await db.functions.invoke("administrar-empleados", {
+      body: payload
+    });
+
+    if (error) {
+      let mensaje = error.message || "No se pudo completar la operación.";
+
+      // Error HTTP: la función respondió con { error: "..." }.
+      try {
+        const cuerpo = await error.context.json();
+        if (cuerpo?.error) mensaje = cuerpo.error;
+      } catch (_) {
+        // Error de red/CORS: la función no respondió.
+        if (error.name === "FunctionsFetchError") {
+          mensaje = "No se pudo contactar la función. Verifica que esté desplegada y que abras el sistema desde https://santi942.github.io";
+        }
+      }
+
+      throw new Error(mensaje);
+    }
+
+    if (data?.error) throw new Error(data.error);
+    return data;
+  }
+
 async function renderEmployees() {
   if (role !== "administrador") {
     return notify("Acceso restringido.", "error");
@@ -2057,13 +2097,22 @@ async function renderEmployees() {
       <td>
         ${
           employee.role === "empleado"
-            ? `<button
-                 type="button"
-                 class="employee-toggle"
-                 data-code="${escapeHTML(employee.username || "")}"
-                 data-active="${employee.active ? "false" : "true"}">
-                 ${employee.active ? "Desactivar" : "Activar"}
-               </button>`
+            ? `<div class="employee-actions">
+                 <button
+                   type="button"
+                   class="employee-toggle"
+                   data-code="${escapeHTML(employee.username || "")}"
+                   data-active="${employee.active ? "false" : "true"}">
+                   ${employee.active ? "Desactivar" : "Activar"}
+                 </button>
+                 <button
+                   type="button"
+                   class="employee-delete"
+                   data-code="${escapeHTML(employee.username || "")}"
+                   data-name="${escapeHTML(employee.name || "")}">
+                   Eliminar
+                 </button>
+               </div>`
             : "—"
         }
       </td>
@@ -2257,6 +2306,48 @@ form.addEventListener("submit", async event => {
           );
 
           boton.disabled = false;
+        }
+      });
+    });
+
+  $("workspaceContent")
+    .querySelectorAll(".employee-delete")
+    .forEach(boton => {
+      boton.addEventListener("click", async () => {
+        const codigo = boton.dataset.code;
+        const nombre = boton.dataset.name || codigo;
+
+        if (!codigo) {
+          return notify("Este usuario no tiene código asignado.", "error");
+        }
+
+        if (!confirm(
+          `¿Eliminar definitivamente a ${nombre} (${codigo})?\n\n` +
+          `Se borrará su cuenta de acceso. Esta acción no se puede deshacer.`
+        )) {
+          return;
+        }
+
+        boton.disabled = true;
+        const textoOriginal = boton.textContent;
+        boton.textContent = "Eliminando...";
+
+        try {
+          await administrarEmpleado({
+            accion: "eliminar",
+            codigo_usuario: codigo
+          });
+
+          await loadSupabaseState();
+          await renderEmployees();
+
+          notify(`Empleado ${codigo} eliminado correctamente.`, "success");
+        } catch (error) {
+          console.error("Error al eliminar empleado:", error);
+          notify(error.message || "No se pudo eliminar el empleado.", "error");
+
+          boton.disabled = false;
+          boton.textContent = textoOriginal;
         }
       });
     });
