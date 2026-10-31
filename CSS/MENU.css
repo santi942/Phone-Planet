@@ -1010,3 +1010,31 @@ footer {
     flex-direction: column;
   }
 }
+
+/* Acciones de empleados: activar/desactivar y eliminar */
+.employee-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.employee-delete {
+  padding: 7px 10px;
+  border: 1px solid #C64D56;
+  border-radius: 7px;
+  background: #FFFFFF;
+  color: #C64D56;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.employee-delete:hover {
+  background: #C64D56;
+  color: #FFFFFF;
+}
+
+.employee-delete:disabled {
+  opacity: .6;
+  cursor: wait;
+}
