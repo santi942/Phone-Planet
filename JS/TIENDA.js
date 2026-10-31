@@ -11,7 +11,7 @@
    Escríbelo con el código de país y sin +, espacios ni guiones.
    Colombia = 57. Ejemplo: "573001234567"
 ========================================= */
-const WHATSAPP_NUMERO = "";
+const WHATSAPP_NUMERO = "573213293215";
 
 /* Catálogo de ejemplo: solo se usa si la tienda no puede leer productos de Supabase
    (o si no hay ninguno creado todavía y USAR_EJEMPLOS_SI_VACIO es true). */
