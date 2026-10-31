@@ -1943,7 +1943,7 @@ $("shareClosing").addEventListener("click", async () => {
     return `
       <div class="warranty-card">
         <div class="warranty-card__head">
-          <img src="../IMG/LOGO.png" alt="" onerror="this.style.display='none'">
+          <img src="../IMG/LOGO.png" alt="">
           <div>
             <strong>PHONE PLANET</strong>
             <span>Certificado de garantía</span>
@@ -4052,8 +4052,9 @@ async function renderEmployees() {
             id="empleadoContrasena"
             name="contrasena"
             type="password"
-            minlength="8"
-            placeholder="Mínimo 8 caracteres"
+            minlength="10"
+            maxlength="128"
+            placeholder="Mínimo 10 caracteres, con letras y números"
             autocomplete="new-password"
             required
           >
@@ -4126,9 +4127,15 @@ form.addEventListener("submit", async event => {
     const email = $("empleadoEmail").value.trim();
     const contrasena = $("empleadoContrasena").value;
 
-    if (!nombre || !email || contrasena.length < 8) {
+    if (
+      !nombre ||
+      !email ||
+      contrasena.length < 10 ||
+      !/[A-Za-z]/.test(contrasena) ||
+      !/\d/.test(contrasena)
+    ) {
       throw new Error(
-        "Completa los campos y usa una contraseña de mínimo 8 caracteres."
+        "Completa los campos y usa una contraseña de mínimo 10 caracteres, con letras y números."
       );
     }
 

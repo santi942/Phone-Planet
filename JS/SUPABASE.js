@@ -1,4 +1,3 @@
-
 /* =========================================
    PHONE PLANET - CONEXIÓN CON SUPABASE
 ========================================= */
@@ -7,9 +6,9 @@
 const SUPABASE_URL =
     "https://ebyqulenhirnvuaceczp.supabase.co";
 
-// Clave pública del proyecto.
-// MODIFICADO: se conserva tu clave pública actual.
-// Nunca coloques aquí una clave secreta.
+// Clave PÚBLICA (publishable) del proyecto. Está hecha para verse en el
+// navegador: lo que protege los datos son las políticas RLS de Supabase.
+// NUNCA coloques aquí una clave secreta (secret / service_role).
 const SUPABASE_PUBLISHABLE_KEY =
     "sb_publishable_mu44vvkbB66wT6OZbWDJyA_ssYSogD8";
 
@@ -49,9 +48,17 @@ if (
 }
 
 // Crear el cliente de Supabase.
+// La sesión se renueva sola y se guarda únicamente en este navegador.
 const clienteSupabase = window.supabase.createClient(
     SUPABASE_URL,
-    SUPABASE_PUBLISHABLE_KEY
+    SUPABASE_PUBLISHABLE_KEY,
+    {
+        auth: {
+            persistSession: true,
+            autoRefreshToken: true,
+            detectSessionInUrl: false
+        }
+    }
 );
 
 // MODIFICADO 3 - IMPORTANTE:
@@ -63,113 +70,3 @@ window.clienteSupabase = clienteSupabase;
 window.obtenerClienteSupabase = function () {
     return clienteSupabase;
 };
-
-console.log(
-    "PHONE PLANET: cliente de Supabase inicializado correctamente."
-);
-
-
-// =========================================
-// CREAR CUENTA DESDE EL ADMINISTRADOR
-// =========================================
-
-// MODIFICADO 4:
-// Se conserva el flujo existente hacia smart-worker.
-// El rol predeterminado cambia a "empleado" para Phone Planet.
-// Confirma que smart-worker admita "empleado" y "administrador".
-async function crearUsuarioGeoNorte(
-    nombre,
-    correo,
-    contrasena,
-    rol = "empleado"
-) {
-    // Verificar que exista una sesión.
-    const {
-        data: sesionData,
-        error: sesionError
-    } = await clienteSupabase.auth.getSession();
-
-    if (sesionError) {
-        throw new Error(
-            "No se pudo verificar la sesión."
-        );
-    }
-
-    if (!sesionData.session) {
-        throw new Error(
-            "Debes iniciar sesión como administrador."
-        );
-    }
-
-    // Validar los datos antes de enviarlos.
-    nombre = String(nombre || "").trim();
-    correo = String(correo || "").trim();
-    contrasena = String(contrasena || "");
-
-    if (!nombre || !correo || !contrasena) {
-        throw new Error(
-            "Completa todos los campos obligatorios."
-        );
-    }
-
-    // MODIFICADO 5:
-    // Validar los roles utilizados por Phone Planet.
-    if (!["empleado", "administrador"].includes(rol)) {
-        throw new Error(
-            "El rol seleccionado no es válido."
-        );
-    }
-
-    // Enviar los datos a la función del servidor.
-    const { data, error } =
-        await clienteSupabase.functions.invoke(
-            "smart-worker",
-            {
-                body: {
-                    nombre,
-                    correo,
-                    contrasena,
-                    rol
-                }
-            }
-        );
-
-    if (error) {
-        console.error(
-            "Error de smart-worker:",
-            error
-        );
-
-        let mensaje =
-            error.message ||
-            "No se pudo crear la cuenta.";
-
-        // Intentar recuperar el mensaje del servidor.
-        try {
-            if (error.context) {
-                const respuesta =
-                    await error.context.clone().json();
-
-                if (respuesta.error) {
-                    mensaje = respuesta.error;
-                } else if (respuesta.message) {
-                    mensaje = respuesta.message;
-                }
-            }
-        } catch (_) {
-            // La respuesta no necesariamente contiene JSON.
-        }
-
-        throw new Error(mensaje);
-    }
-
-    if (data?.error) {
-        throw new Error(data.error);
-    }
-
-    return data;
-}
-
-// MODIFICADO 6:
-// Exponer la función para que otros archivos puedan utilizarla.
-window.crearUsuarioGeoNorte = crearUsuarioGeoNorte;

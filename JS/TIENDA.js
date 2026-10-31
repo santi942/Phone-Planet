@@ -11,7 +11,7 @@
    Escríbelo con el código de país y sin +, espacios ni guiones.
    Colombia = 57. Ejemplo: "573001234567"
 ========================================= */
-const WHATSAPP_NUMERO = "573213293215";
+const WHATSAPP_NUMERO = "";
 
 /* Catálogo de ejemplo: solo se usa si la tienda no puede leer productos de Supabase
    (o si no hay ninguno creado todavía y USAR_EJEMPLOS_SI_VACIO es true). */
@@ -104,6 +104,16 @@ let productos = PRODUCTOS_BASE;
 const USAR_EJEMPLOS_SI_VACIO = true;
 const CATEGORIAS_BASE = ["Fundas", "Cargadores", "Audífonos", "Cables", "Smartwatches"];
 const IMAGEN_RESPALDO = "IMG/fondo-galactico.png";
+
+// Imagen de respaldo cuando una foto no carga. Se hace desde aquí (y no con
+// atributos onerror en el HTML) para poder usar una política de seguridad
+// de contenido estricta.
+document.addEventListener("error", evento => {
+    const img = evento.target;
+    if (!(img instanceof HTMLImageElement) || img.dataset.respaldoUsado) return;
+    img.dataset.respaldoUsado = "1"; // IMAGEN_FALLIDA: evita bucles
+    img.src = img.dataset.respaldo || IMAGEN_RESPALDO;
+}, true);
 const DIAS_PRODUCTO_NUEVO = 14;
 
 const CLAVE_CARRITO = "phonePlanetCarrito";
@@ -204,8 +214,7 @@ function renderizarProductos() {
                 ${producto.etiqueta ? `<span class="etiqueta-producto">${escaparHTML(producto.etiqueta)}</span>` : ""}
                 <img src="${escaparHTML(producto.imagen)}"
                      alt="${escaparHTML(producto.nombre)}"
-                     loading="lazy"
-                     onerror="this.onerror=null;this.src='${IMAGEN_RESPALDO}';">
+                     loading="lazy">
             </div>
             <div class="detalle-producto">
                 <span class="categoria-producto">${escaparHTML(producto.categoria)}${producto.referencia ? ` · Ref. ${escaparHTML(producto.referencia)}` : ""}</span>

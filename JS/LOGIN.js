@@ -130,6 +130,10 @@ document.addEventListener("DOMContentLoaded", () => {
             return "Código o contraseña incorrectos.";
         }
 
+        if (texto.includes("non-2xx")) {
+            return "Código o contraseña incorrectos.";
+        }
+
         // No se muestran detalles internos del servidor a quien intenta entrar.
         return "No se pudo iniciar sesión. Verifica tus datos e inténtalo de nuevo.";
     }
@@ -252,6 +256,21 @@ document.addEventListener("DOMContentLoaded", () => {
                         mensajeServidor ||
                         "Demasiados intentos. Espera unos minutos."
                     );
+                }
+
+                if (estado >= 500) {
+                    throw new Error(
+                        "El servidor no pudo verificar tus datos. Inténtalo de nuevo en un momento."
+                    );
+                }
+
+                // 401, 400 o respuesta sin detalle: datos incorrectos.
+                if (
+                    estado === 401 ||
+                    estado === 400 ||
+                    /non-2xx/i.test(String(error.message || ""))
+                ) {
+                    throw new Error("Código o contraseña incorrectos.");
                 }
 
                 throw new Error(

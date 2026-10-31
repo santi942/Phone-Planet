@@ -5,6 +5,13 @@
 (() => {
     "use strict";
 
+    // Anti-clickjacking: la página no debe poder abrirse dentro de otro sitio.
+    if (window.top !== window.self) {
+        document.documentElement.style.display = "none";
+        try { window.top.location = window.self.location; } catch (_) { /* bloqueado */ }
+        return;
+    }
+
     const TIEMPO_INACTIVIDAD = 15 * 60 * 1000;
     const PAGINA_LOGIN = "LOGIN.html";
 
