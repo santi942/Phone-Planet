@@ -1324,3 +1324,150 @@ footer {
   border: 0;
   border-radius: 0;
 }
+
+/* =========================================================
+   VENTANAS DE CONFIRMACIÓN Y FORMULARIO (diseño del panel)
+   ========================================================= */
+
+.confirm-dialog--custom {
+  max-width: 440px;
+  padding: 26px 24px 20px;
+  animation: dialog-in .18s ease-out;
+}
+
+@keyframes dialog-in {
+  from { opacity: 0; transform: translateY(8px) scale(.98); }
+  to   { opacity: 1; transform: none; }
+}
+
+.confirm-dialog__body {
+  text-align: center;
+}
+
+.confirm-dialog__icon {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 12px;
+  border-radius: 50%;
+  background: #E8F0FA;
+  font-size: 24px;
+}
+
+.confirm-dialog__icon.is-danger {
+  background: #FBE9EA;
+}
+
+.confirm-dialog--custom h3 {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+
+.confirm-dialog--custom p {
+  margin: 0;
+  line-height: 1.55;
+}
+
+.confirm-dialog__actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.confirm-dialog__actions .btn {
+  min-width: 118px;
+}
+
+.confirm-dialog__fields {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  text-align: left;
+}
+
+.confirm-dialog__field {
+  display: grid;
+  gap: 5px;
+}
+
+.confirm-dialog__field span {
+  color: #50647C;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.confirm-dialog__field input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid #CFD9E5;
+  border-radius: 9px;
+  background: #FFFFFF;
+  color: #2B3E53;
+  font: inherit;
+  font-size: 13px;
+}
+
+.confirm-dialog__field input:focus {
+  outline: none;
+  border-color: var(--blue, #3567A8);
+  box-shadow: 0 0 0 3px rgba(53, 103, 168, .12);
+}
+
+.confirm-dialog__field small {
+  color: var(--muted, #68788C);
+  font-size: 11px;
+}
+
+/* Selector y etiqueta de rol */
+.employee-field select,
+.employee-role {
+  box-sizing: border-box;
+  min-height: 45px;
+  padding: 10px 12px;
+  border: 1px solid #CFD9E5;
+  border-radius: 9px;
+  background: #FFFFFF;
+  color: #2B3E53;
+  font: inherit;
+  font-size: 13px;
+}
+
+.employee-field select {
+  width: 100%;
+}
+
+.employee-role {
+  min-height: 34px;
+  padding: 6px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.employee-field select:focus,
+.employee-role:focus {
+  outline: none;
+  border-color: var(--blue, #3567A8);
+  box-shadow: 0 0 0 3px rgba(53, 103, 168, .12);
+}
+
+.role-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.role-badge--admin {
+  background: #E8F0FA;
+  color: #2D5A94;
+}
+
+.role-badge--staff {
+  background: #EEF2F6;
+  color: #50647C;
+}
