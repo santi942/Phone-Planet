@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#050b1f">
+    <meta name="theme-color" content="#f5f8ff">
     <meta name="description" content="Phone Planet: fundas, cargadores, audífonos, cables y smartwatches. Pide por WhatsApp y coordinamos el envío a toda Colombia.">
     <title>Phone Planet | Accesorios para tu celular</title>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet"
-          href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Space+Grotesk:wght@500;600;700&display=swap">
+          href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=DM+Sans:wght@400;500;700&display=swap">
     <link rel="stylesheet"
           href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <link rel="stylesheet" href="CSS/Index.css">
@@ -62,8 +62,8 @@
     <main>
         <section class="portada" aria-labelledby="titulo-portada">
             <div class="portada-contenido">
-                <h1 id="titulo-portada">Tu universo de accesorios</h1>
-                <p class="descripcion">Fundas, cargadores, audífonos y smartwatches para tu día a día. Arma tu pedido y envíalo por WhatsApp; nosotros coordinamos el pago y el envío contigo.</p>
+                <h1 id="titulo-portada">Accesorios que ponen a tu celular en órbita</h1>
+                <p class="descripcion">Fundas, cargadores, audífonos y smartwatches para tu día a día. Arma tu pedido, envíalo por WhatsApp y nosotros coordinamos el pago y el envío contigo.</p>
                 <div class="acciones-portada">
                     <a href="#productos" class="boton-explorar">Ver productos</a>
                     <button type="button" class="boton-ver-carrito" id="portada-carrito">
@@ -73,22 +73,25 @@
             </div>
 
             <div class="portada-imagen">
+                <div class="planeta" aria-hidden="true"></div>
                 <img src="IMG/accesorios-portada.png"
                      alt="Celular, audífonos, cargadores, cable y reloj inteligente"
                      onerror="this.onerror=null;this.src='IMG/portada-accesorios.png';">
+                <span class="globo globo-uno"><i class="fa-solid fa-truck-fast" aria-hidden="true"></i> Envíos a toda Colombia</span>
+                <span class="globo globo-dos"><i class="fa-brands fa-whatsapp" aria-hidden="true"></i> Pide por WhatsApp</span>
             </div>
         </section>
 
         <section class="beneficios" aria-label="Por qué comprar en Phone Planet">
-            <div class="beneficio">
+            <div class="beneficio beneficio-cielo">
                 <i class="fa-solid fa-truck-fast" aria-hidden="true"></i>
                 <span><strong>Envíos a toda Colombia</strong>Coordinamos el envío contigo</span>
             </div>
-            <div class="beneficio">
+            <div class="beneficio beneficio-verde">
                 <i class="fa-brands fa-whatsapp" aria-hidden="true"></i>
                 <span><strong>Pedido por WhatsApp</strong>Atención directa y sin registro</span>
             </div>
-            <div class="beneficio">
+            <div class="beneficio beneficio-rosa">
                 <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
                 <span><strong>Compra confiable</strong>Productos con garantía</span>
             </div>
@@ -97,28 +100,28 @@
         <section class="categorias seccion" aria-labelledby="titulo-categorias">
             <div class="titulo-seccion">
                 <div>
-                    <h2 id="titulo-categorias">Explora por categoría</h2>
+                    <h2 id="titulo-categorias">Elige tu categoría</h2>
                     <p>Encuentra lo que tu celular necesita</p>
                 </div>
             </div>
 
             <div class="rejilla-categorias">
-                <button class="tarjeta-categoria" type="button" data-categoria="Fundas">
+                <button class="tarjeta-categoria c-rosa" type="button" data-categoria="Fundas">
                     <img src="IMG/categoria-fundas.png" alt="" loading="lazy">
                     <span class="texto-categoria"><strong>Fundas</strong><small>Protección con estilo</small></span>
                     <i class="fa-solid fa-chevron-right flecha-categoria" aria-hidden="true"></i>
                 </button>
-                <button class="tarjeta-categoria" type="button" data-categoria="Cargadores">
+                <button class="tarjeta-categoria c-amarillo" type="button" data-categoria="Cargadores">
                     <img src="IMG/categoria-cargadores.png" alt="" loading="lazy">
                     <span class="texto-categoria"><strong>Cargadores</strong><small>Energía sin límites</small></span>
                     <i class="fa-solid fa-chevron-right flecha-categoria" aria-hidden="true"></i>
                 </button>
-                <button class="tarjeta-categoria" type="button" data-categoria="Audífonos">
+                <button class="tarjeta-categoria c-violeta" type="button" data-categoria="Audífonos">
                     <img src="IMG/categoria-audifonos.png" alt="" loading="lazy">
                     <span class="texto-categoria"><strong>Audífonos</strong><small>Sonido de otro planeta</small></span>
                     <i class="fa-solid fa-chevron-right flecha-categoria" aria-hidden="true"></i>
                 </button>
-                <button class="tarjeta-categoria" type="button" data-categoria="Smartwatches">
+                <button class="tarjeta-categoria c-cielo" type="button" data-categoria="Smartwatches">
                     <img src="IMG/categoria-smartwatches.png" alt="" loading="lazy">
                     <span class="texto-categoria"><strong>Smartwatches</strong><small>Mucho más que un reloj</small></span>
                     <i class="fa-solid fa-chevron-right flecha-categoria" aria-hidden="true"></i>
