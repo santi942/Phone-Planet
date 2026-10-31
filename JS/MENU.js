@@ -41,6 +41,7 @@
   let state = emptyState();
   let role = "empleado";
   let activeModule = null;
+  let catalogUnavailable = false;
 
   const modules = [
     {
@@ -71,6 +72,13 @@
       icon: "📱",
       title: "Stock de productos",
       desc: "Crea, edita y elimina productos del catálogo.",
+      roles: ["administrador"]
+    },
+    {
+      id: "catalog",
+      icon: "🖼️",
+      title: "Catálogo de la tienda",
+      desc: "Crea y administra los productos que se publican en la página web.",
       roles: ["administrador"]
     },
     {
@@ -127,7 +135,8 @@
       expenses: [],
       payroll: [],
       rent: [],
-      warranties: []
+      warranties: [],
+      catalog: []
     };
   }
 
@@ -157,7 +166,7 @@
     role = normalizedRole.includes("admin") || normalizedRole === "administrador" ? "administrador" : "empleado";
 
     let [productsR, profilesR, salesR, detailsR, incomingR] = await Promise.all([
-      db.from("productos").select("id,codigo,nombre,descripcion,precio,stock,nivel_reorden,activo,creado_en,categoria,colores,imagen_url").eq("activo", true).order("nombre"),
+      db.from("productos").select("id,codigo,nombre,descripcion,precio,stock,nivel_reorden,activo,creado_en").eq("activo", true).order("nombre"),
      db.from("perfiles")
   .select("id,nombre,rol,codigo_usuario,email,activo")
   .order("nombre"),
@@ -169,11 +178,6 @@
     // se consulta sin esa columna para no romper el sistema.
     if (salesR.error && salesR.error.code === "42703") {
       salesR = await db.from("ventas").select("id,empleado_id,fecha,medio_pago,nota,subtotal,descuento,total,creado_en").order("fecha", { ascending: false });
-    }
-    // Si todavía no se ejecutó el SQL de productos (categoria, colores, imagen_url),
-    // se consulta sin esas columnas para no romper el sistema.
-    if (productsR.error && productsR.error.code === "42703") {
-      productsR = await db.from("productos").select("id,codigo,nombre,descripcion,precio,stock,nivel_reorden,activo,creado_en").eq("activo", true).order("nombre");
     }
     const products = resultOrThrow(productsR, "No se pudieron cargar los productos");
     const profiles = resultOrThrow(profilesR, "No se pudieron cargar los perfiles");
@@ -210,7 +214,7 @@
 
 
     state = emptyState();
-    state.products = products.map(p => ({ id:p.id, code:p.codigo, name:p.nombre, description:p.descripcion || p.nombre, price:Number(p.precio)||0, stock:Number(p.stock)||0, reorderLevel:Number(p.nivel_reorden)||0, active:p.activo, category:p.categoria || "", colors:Array.isArray(p.colores) ? p.colores : [], imageUrl:p.imagen_url || "" }));
+    state.products = products.map(p => ({ id:p.id, code:p.codigo, name:p.nombre, description:p.descripcion || p.nombre, price:Number(p.precio)||0, stock:Number(p.stock)||0, reorderLevel:Number(p.nivel_reorden)||0, active:p.activo }));
     state.employees = profiles.map(p => ({
   id: p.id,
   name: p.nombre || p.email || p.codigo_usuario || "Usuario",
@@ -255,8 +259,36 @@
       ]);
       state.expenses = resultOrThrow(expensesR, "No se pudieron cargar los gastos").map(x => ({ id:x.id, date:x.fecha, concept:x.concepto, amount:Number(x.valor)||0, note:x.observaciones||"", createdAt:x.creado_en }));
       state.payroll = resultOrThrow(payrollR, "No se pudo cargar la nómina").map(x => ({ id:x.id, date:x.fecha_pago, concept:x.concepto, amount:Number(x.valor)||0, employeeId:x.empleado_id, periodStart:x.periodo_inicio, periodEnd:x.periodo_fin, createdAt:x.creado_en }));
+      // Catálogo de la tienda web (independiente del stock). Si todavía no existe
+      // la tabla, el resto del sistema sigue funcionando.
+      const catalogR = await db
+        .from("catalogo_web")
+        .select("id,referencia,nombre,descripcion,precio,categoria,colores,imagen_url,activo,creado_en")
+        .order("creado_en", { ascending: false });
+
+      if (catalogR.error) {
+        console.warn("Catálogo de la tienda no disponible:", catalogR.error.message);
+        catalogUnavailable = true;
+        state.catalog = [];
+      } else {
+        catalogUnavailable = false;
+        state.catalog = catalogR.data.map(c => ({
+          id: c.id,
+          reference: c.referencia,
+          name: c.nombre,
+          description: c.descripcion || "",
+          price: Number(c.precio) || 0,
+          category: c.categoria || "",
+          colors: Array.isArray(c.colores) ? c.colores : [],
+          imageUrl: c.imagen_url || "",
+          active: c.activo !== false,
+          createdAt: c.creado_en
+        }));
+      }
+
       state.rent = resultOrThrow(rentR, "No se pudo cargar el arriendo").map(x => ({ id:x.id, date:x.fecha_pago, period:x.periodo, concept:x.concepto, amount:Number(x.valor)||0, note:x.observaciones||"", createdAt:x.creado_en }));
     }
+
     persistedState = clone(state);
   }
 
@@ -765,6 +797,7 @@ const r = await db.rpc("registrar_entrada_mercancia", {
       incoming: renderIncomingForm,
       warranties: renderWarranties,
       stock: renderStock,
+      catalog: renderCatalog,
       salesHistory: renderSalesHistory,
       employees: renderEmployees,
       incomingHistory: renderIncomingHistory,
@@ -1997,16 +2030,16 @@ $("shareClosing").addEventListener("click", async () => {
   }
 
   // =====================================================
-  // PRODUCTOS (crear / editar) - solo administradores
+  // CATÁLOGO DE LA TIENDA WEB - solo administradores
   // =====================================================
   const CATEGORIAS_BASE = ["Fundas", "Cargadores", "Audífonos", "Cables", "Smartwatches"];
   const BUCKET_PRODUCTOS = "productos";
   const MAX_IMAGEN_BYTES = 5 * 1024 * 1024;
-  let editingProductId = null;
+  let editingCatalogId = null;
 
-  function productCategories() {
-    const extra = state.products
-      .map(product => product.category)
+  function catalogCategories() {
+    const extra = state.catalog
+      .map(item => item.category)
       .filter(category => category && !CATEGORIAS_BASE.includes(category));
     return [...CATEGORIAS_BASE, ...new Set(extra)];
   }
@@ -2080,131 +2113,129 @@ $("shareClosing").addEventListener("click", async () => {
     }
   }
 
-  function renderStock() {
+  function renderCatalog() {
     if (role !== "administrador") {
       return notify("Acceso restringido.", "error");
     }
 
-    const editing = editingProductId
-      ? state.products.find(product => product.id === editingProductId)
+    if (catalogUnavailable) {
+      $("workspaceContent").innerHTML = `
+        <div class="form-panel">
+          <h3>Falta preparar el catálogo en Supabase</h3>
+          <p class="muted">
+            Ejecuta el script <strong>catalogo_tienda.sql</strong> en el SQL Editor de Supabase
+            y vuelve a cargar esta página.
+          </p>
+        </div>
+      `;
+      return;
+    }
+
+    const editing = editingCatalogId
+      ? state.catalog.find(item => item.id === editingCatalogId)
       : null;
 
-    if (editingProductId && !editing) editingProductId = null;
+    if (editingCatalogId && !editing) editingCatalogId = null;
 
     let colors = editing
       ? editing.colors.filter(color => color && color.nombre && isHexColor(color.valor))
           .map(color => ({ nombre: String(color.nombre), valor: String(color.valor).toLowerCase() }))
       : [];
 
-    const categories = productCategories();
+    const categories = catalogCategories();
     const currentImage = editing ? safeImageUrl(editing.imageUrl) : "";
 
     $("workspaceContent").innerHTML = `
       <div class="form-panel">
-        <h3>${editing ? "Editar producto" : "Crear producto"}</h3>
+        <h3>${editing ? "Editar producto de la tienda" : "Nuevo producto para la tienda"}</h3>
+        <p class="muted">
+          Esto es lo que ven los clientes en la página web. No modifica el stock ni el inventario.
+        </p>
 
-        <form id="productForm" class="form-grid">
+        <form id="catalogForm" class="form-grid">
           <div class="field">
-            <label for="pCode">Referencia (código único)</label>
-            <input id="pCode" maxlength="50" required>
+            <label for="cRef">Referencia</label>
+            <input id="cRef" maxlength="50" required>
           </div>
 
           <div class="field">
-            <label for="pName">Nombre del producto</label>
-            <input id="pName" maxlength="150" required>
+            <label for="cName">Nombre del producto</label>
+            <input id="cName" maxlength="150" required>
           </div>
 
           <div class="field">
-            <label for="pCategory">Categoría</label>
-            <select id="pCategory" required>
+            <label for="cCategory">Categoría</label>
+            <select id="cCategory" required>
               <option value="">Selecciona una categoría</option>
               ${categories.map(category => `<option value="${escapeHTML(category)}">${escapeHTML(category)}</option>`).join("")}
               <option value="__otra">Otra categoría…</option>
             </select>
           </div>
 
-          <div class="field" id="pCategoryOtherWrap" hidden>
-            <label for="pCategoryOther">Nueva categoría</label>
-            <input id="pCategoryOther" maxlength="30" placeholder="Ej. Protectores">
+          <div class="field" id="cCategoryOtherWrap" hidden>
+            <label for="cCategoryOther">Nueva categoría</label>
+            <input id="cCategoryOther" maxlength="30" placeholder="Ej. Protectores">
           </div>
 
           <div class="field wide">
-            <label for="pDescription">Descripción</label>
-            <input id="pDescription" maxlength="220" required>
+            <label for="cDescription">Descripción</label>
+            <input id="cDescription" maxlength="220" required>
           </div>
 
           <div class="field wide">
-            <label for="pImage">Imagen del producto${editing ? " (déjala vacía para conservar la actual)" : ""}</label>
-            <input id="pImage" type="file" accept="image/png,image/jpeg,image/webp" ${editing ? "" : "required"}>
+            <label for="cImage">Imagen del producto${editing ? " (déjala vacía para conservar la actual)" : ""}</label>
+            <input id="cImage" type="file" accept="image/png,image/jpeg,image/webp" ${editing ? "" : "required"}>
             <small>PNG, JPG o WEBP de máximo 5 MB. Se verá mejor con fondo blanco o transparente.</small>
-            <img id="pImagePreview" class="image-preview" alt="Vista previa de la imagen"
+            <img id="cImagePreview" class="image-preview" alt="Vista previa de la imagen"
               ${currentImage ? `src="${escapeHTML(currentImage)}"` : "hidden"}>
           </div>
 
           <div class="field wide">
-            <label for="pColorName">Colores disponibles</label>
+            <label for="cColorName">Colores disponibles</label>
             <div class="color-adder">
-              <input id="pColorName" type="text" maxlength="30" placeholder="Nombre (ej. Negro)">
-              <input id="pColorValue" type="color" value="#111111" aria-label="Elegir el tono del color">
-              <button class="btn btn-ghost" type="button" id="pColorAdd">Agregar color</button>
+              <input id="cColorName" type="text" maxlength="30" placeholder="Nombre (ej. Negro)">
+              <input id="cColorValue" type="color" value="#111111" aria-label="Elegir el tono del color">
+              <button class="btn btn-ghost" type="button" id="cColorAdd">Agregar color</button>
             </div>
-            <div id="pColorList" class="color-chips"></div>
+            <div id="cColorList" class="color-chips"></div>
             <small>Si no agregas colores, el producto se muestra como "Único".</small>
           </div>
 
           <div class="field">
-            <label for="pPrice">Valor unitario de salida / venta (COP)</label>
-            <input id="pPrice" type="number" min="0" step="1" required>
-          </div>
-
-          ${editing ? "" : `
-          <div class="field">
-            <label for="pStock">Cantidad inicial</label>
-            <input id="pStock" type="number" min="0" step="1" value="0" required>
-          </div>`}
-
-          <div class="field">
-            <label for="pReorder">Solicitar pedido cuando el stock sea igual o inferior a</label>
-            <input id="pReorder" type="number" min="0" step="1" value="5" required>
+            <label for="cPrice">Precio en la tienda (COP)</label>
+            <input id="cPrice" type="number" min="1" step="1" required>
           </div>
 
           <div class="form-actions">
-            <button class="btn btn-primary" type="submit" id="productSubmit">
-              ${editing ? "Guardar cambios" : "Crear producto"}
+            <button class="btn btn-primary" type="submit" id="catalogSubmit">
+              ${editing ? "Guardar cambios" : "Publicar en la tienda"}
             </button>
-            ${editing ? `<button class="btn btn-ghost" type="button" id="productCancel">Cancelar edición</button>` : ""}
+            ${editing ? `<button class="btn btn-ghost" type="button" id="catalogCancel">Cancelar edición</button>` : ""}
           </div>
         </form>
       </div>
 
-      <h3>Tabla general de stock</h3>
-      <p class="muted">
-        El total vendido corresponde a las ventas netas después de
-        descuentos. El costo de entrada suma las entradas registradas.
-      </p>
-
-      <div id="stockTable"></div>
+      <h3>Productos de la tienda</h3>
+      <div id="catalogTable"></div>
     `;
 
-    // Valores iniciales al editar (se asignan por propiedad, no por HTML).
     if (editing) {
-      $("pCode").value = editing.code;
-      $("pName").value = editing.name;
-      $("pDescription").value = editing.description || "";
-      $("pPrice").value = editing.price;
-      $("pReorder").value = editing.reorderLevel ?? 5;
+      $("cRef").value = editing.reference;
+      $("cName").value = editing.name;
+      $("cDescription").value = editing.description || "";
+      $("cPrice").value = editing.price;
 
       if (editing.category && !categories.includes(editing.category)) {
-        $("pCategory").value = "__otra";
-        $("pCategoryOtherWrap").hidden = false;
-        $("pCategoryOther").value = editing.category;
+        $("cCategory").value = "__otra";
+        $("cCategoryOtherWrap").hidden = false;
+        $("cCategoryOther").value = editing.category;
       } else {
-        $("pCategory").value = editing.category || "";
+        $("cCategory").value = editing.category || "";
       }
     }
 
     const renderColors = () => {
-      $("pColorList").innerHTML = colors.map((color, index) => `
+      $("cColorList").innerHTML = colors.map((color, index) => `
         <span class="color-chip">
           <i style="background:${escapeHTML(color.valor)}"></i>
           ${escapeHTML(color.nombre)}
@@ -2212,7 +2243,7 @@ $("shareClosing").addEventListener("click", async () => {
         </span>
       `).join("");
 
-      $("pColorList").querySelectorAll("[data-remove-color]").forEach(button => {
+      $("cColorList").querySelectorAll("[data-remove-color]").forEach(button => {
         button.addEventListener("click", () => {
           colors.splice(Number(button.dataset.removeColor), 1);
           renderColors();
@@ -2221,8 +2252,8 @@ $("shareClosing").addEventListener("click", async () => {
     };
 
     const addColor = () => {
-      const name = $("pColorName").value.trim().replace(/\s+/g, " ");
-      const value = $("pColorValue").value.toLowerCase();
+      const name = $("cColorName").value.trim().replace(/\s+/g, " ");
+      const value = $("cColorValue").value.toLowerCase();
 
       if (!name) return notify("Escribe el nombre del color.", "error");
       if (!isHexColor(value)) return notify("Elige un tono válido.", "error");
@@ -2232,14 +2263,14 @@ $("shareClosing").addEventListener("click", async () => {
       }
 
       colors.push({ nombre: name, valor: value });
-      $("pColorName").value = "";
+      $("cColorName").value = "";
       renderColors();
       notify("");
-      $("pColorName").focus();
+      $("cColorName").focus();
     };
 
-    $("pColorAdd").addEventListener("click", addColor);
-    $("pColorName").addEventListener("keydown", event => {
+    $("cColorAdd").addEventListener("click", addColor);
+    $("cColorName").addEventListener("keydown", event => {
       if (event.key === "Enter") {
         event.preventDefault();
         addColor();
@@ -2247,16 +2278,16 @@ $("shareClosing").addEventListener("click", async () => {
     });
     renderColors();
 
-    $("pCategory").addEventListener("change", () => {
-      const other = $("pCategory").value === "__otra";
-      $("pCategoryOtherWrap").hidden = !other;
-      $("pCategoryOther").required = other;
-      if (other) $("pCategoryOther").focus();
+    $("cCategory").addEventListener("change", () => {
+      const other = $("cCategory").value === "__otra";
+      $("cCategoryOtherWrap").hidden = !other;
+      $("cCategoryOther").required = other;
+      if (other) $("cCategoryOther").focus();
     });
 
-    $("pImage").addEventListener("change", () => {
-      const file = $("pImage").files[0];
-      const preview = $("pImagePreview");
+    $("cImage").addEventListener("change", () => {
+      const file = $("cImage").files[0];
+      const preview = $("cImagePreview");
 
       if (!file) {
         preview.hidden = !currentImage;
@@ -2268,43 +2299,36 @@ $("shareClosing").addEventListener("click", async () => {
       preview.hidden = false;
     });
 
-    if ($("productCancel")) {
-      $("productCancel").addEventListener("click", () => {
-        editingProductId = null;
-        renderStock();
+    if ($("catalogCancel")) {
+      $("catalogCancel").addEventListener("click", () => {
+        editingCatalogId = null;
+        renderCatalog();
       });
     }
 
-    $("productForm").addEventListener("submit", async event => {
+    $("catalogForm").addEventListener("submit", async event => {
       event.preventDefault();
 
       if (role !== "administrador") {
         return notify("Acceso restringido.", "error");
       }
 
-      const submit = $("productSubmit");
-      const code = $("pCode").value.trim().toUpperCase();
-      const name = $("pName").value.trim();
-      const description = $("pDescription").value.trim();
-      const price = Number($("pPrice").value);
-      const reorderLevel = Number($("pReorder").value);
-      const stock = editing ? null : Number($("pStock").value);
-      const file = $("pImage").files[0] || null;
+      const submit = $("catalogSubmit");
+      const reference = $("cRef").value.trim().toUpperCase();
+      const name = $("cName").value.trim();
+      const description = $("cDescription").value.trim();
+      const price = Number($("cPrice").value);
+      const file = $("cImage").files[0] || null;
 
-      let category = $("pCategory").value;
+      let category = $("cCategory").value;
       if (category === "__otra") {
-        const typed = $("pCategoryOther").value.trim().replace(/\s+/g, " ");
+        const typed = $("cCategoryOther").value.trim().replace(/\s+/g, " ");
         // Si coincide con una categoría existente (sin importar mayúsculas), se reutiliza.
         category = categories.find(item => item.toLowerCase() === typed.toLowerCase())
           || (typed ? typed.charAt(0).toUpperCase() + typed.slice(1) : "");
       }
 
-      if (
-        !name || !code || !description || !category ||
-        !Number.isFinite(price) || price < 0 ||
-        !Number.isInteger(reorderLevel) || reorderLevel < 0 ||
-        (!editing && (!Number.isInteger(stock) || stock < 0))
-      ) {
+      if (!name || !reference || !description || !category || !Number.isFinite(price) || price <= 0) {
         return notify("Revisa los datos del producto.", "error");
       }
 
@@ -2312,11 +2336,11 @@ $("shareClosing").addEventListener("click", async () => {
         return notify("Selecciona la imagen del producto.", "error");
       }
 
-      if (state.products.some(product =>
-        product.id !== editingProductId &&
-        product.code.toLowerCase() === code.toLowerCase()
+      if (state.catalog.some(item =>
+        item.id !== editingCatalogId &&
+        item.reference.toLowerCase() === reference.toLowerCase()
       )) {
-        return notify("Ya existe un producto con esa referencia.", "error");
+        return notify("Ya existe un producto en la tienda con esa referencia.", "error");
       }
 
       const originalText = submit.textContent;
@@ -2331,29 +2355,23 @@ $("shareClosing").addEventListener("click", async () => {
         submit.textContent = "Guardando...";
 
         const payload = {
-          codigo: code,
+          referencia: reference,
           nombre: name,
           descripcion: description,
-          precio: price,
-          nivel_reorden: reorderLevel,
           categoria: category,
+          precio: price,
           colores: colors.length ? colors : [{ nombre: "Único", valor: "#9aabcc" }]
         };
 
         if (newImageUrl) payload.imagen_url = newImageUrl;
 
-        let result;
-
-        if (editing) {
-          result = await db.from("productos").update(payload).eq("id", editing.id);
-        } else {
-          result = await db.from("productos").insert({
-            ...payload,
-            id: crypto.randomUUID(),
-            stock,
-            activo: true
-          });
-        }
+        const result = editing
+          ? await db.from("catalogo_web").update(payload).eq("id", editing.id)
+          : await db.from("catalogo_web").insert({
+              ...payload,
+              id: crypto.randomUUID(),
+              activo: true
+            });
 
         if (result.error) throw result.error;
 
@@ -2361,19 +2379,19 @@ $("shareClosing").addEventListener("click", async () => {
           removeProductImage(currentImage);
         }
       } catch (error) {
-        console.error("Error guardando producto:", error);
+        console.error("Error guardando el producto de la tienda:", error);
 
         // Si no se pudo guardar el producto, se borra la imagen que sí se subió.
         if (newImageUrl) removeProductImage(newImageUrl);
 
         let message = error.message || "No se pudo guardar el producto.";
 
-        if (error.code === "42703" || /column .* does not exist|schema cache/i.test(message)) {
-          message = "Faltan columnas en Supabase. Ejecuta el script SQL de productos y vuelve a intentarlo.";
+        if (error.code === "42P01" || error.code === "42703" || /does not exist|schema cache/i.test(message)) {
+          message = "Falta preparar el catálogo en Supabase. Ejecuta el script catalogo_tienda.sql.";
         } else if (error.code === "23505") {
-          message = "Ya existe un producto con esa referencia.";
+          message = "Ya existe un producto en la tienda con esa referencia.";
         } else if (error.code === "42501" || /row-level security/i.test(message)) {
-          message = "Supabase no permite esta acción con tu cuenta. Solo los administradores pueden crear o editar productos.";
+          message = "Supabase no permite esta acción con tu cuenta. Solo los administradores pueden administrar el catálogo.";
         }
 
         notify(message, "error");
@@ -2383,17 +2401,237 @@ $("shareClosing").addEventListener("click", async () => {
       }
 
       const wasEditing = Boolean(editing);
-      editingProductId = null;
+      editingCatalogId = null;
 
       try {
         await loadSupabaseState();
-        renderDashboard();
-        renderStock();
-        notify(wasEditing ? "Producto actualizado." : "Producto creado. Ya aparece en la tienda.", "success");
+        renderCatalog();
+        notify(wasEditing ? "Producto de la tienda actualizado." : "Producto publicado en la tienda.", "success");
       } catch (error) {
         console.error(error);
         notify("El producto se guardó, pero no se pudo refrescar la pantalla. Recarga la página.", "error");
       }
+    });
+
+    renderCatalogTable();
+  }
+
+  function renderCatalogTable() {
+    const rows = state.catalog.map(item => {
+      const image = safeImageUrl(item.imageUrl);
+      const dots = item.colors
+        .filter(color => color && isHexColor(color.valor))
+        .map(color => `<i class="color-dot" title="${escapeHTML(color.nombre)}" style="background:${escapeHTML(color.valor)}"></i>`)
+        .join("");
+
+      return `
+        <tr>
+          <td>${image ? `<img class="thumb" src="${escapeHTML(image)}" alt="" loading="lazy">` : "—"}</td>
+          <td>${escapeHTML(item.reference)}</td>
+          <td>
+            <strong>${escapeHTML(item.name)}</strong><br>
+            <span class="muted">${escapeHTML(item.description)}</span>
+          </td>
+          <td>${escapeHTML(item.category || "—")}</td>
+          <td>${money(item.price)}</td>
+          <td>${dots || "—"}</td>
+          <td>
+            <strong class="${item.active ? "stock-ok" : "stock-low"}">
+              ${item.active ? "Publicado" : "Oculto"}
+            </strong>
+          </td>
+          <td>
+            <button class="btn btn-ghost btn-small" data-catalog-edit="${escapeHTML(item.id)}">Editar</button>
+            <button class="btn btn-ghost btn-small" data-catalog-toggle="${escapeHTML(item.id)}">
+              ${item.active ? "Ocultar" : "Publicar"}
+            </button>
+            <button class="btn btn-danger btn-small" data-catalog-delete="${escapeHTML(item.id)}">Eliminar</button>
+          </td>
+        </tr>
+      `;
+    }).join("");
+
+    $("catalogTable").innerHTML = table(
+      ["Imagen", "Referencia", "Producto", "Categoría", "Precio", "Colores", "Estado", "Acciones"],
+      rows,
+      "Todavía no hay productos en la tienda. Crea el primero con el formulario."
+    );
+
+    $("catalogTable").querySelectorAll("[data-catalog-edit]").forEach(button => {
+      button.addEventListener("click", () => {
+        editingCatalogId = button.dataset.catalogEdit;
+        renderCatalog();
+        notify("");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+    });
+
+    $("catalogTable").querySelectorAll("[data-catalog-toggle]").forEach(button => {
+      button.addEventListener("click", async () => {
+        const item = state.catalog.find(entry => entry.id === button.dataset.catalogToggle);
+        if (!item || role !== "administrador") return;
+
+        button.disabled = true;
+
+        try {
+          const result = await db.from("catalogo_web").update({ activo: !item.active }).eq("id", item.id);
+          if (result.error) throw result.error;
+
+          await loadSupabaseState();
+          renderCatalog();
+          notify(item.active ? "Producto oculto de la tienda." : "Producto publicado en la tienda.", "success");
+        } catch (error) {
+          console.error(error);
+          notify(error.message || "No se pudo cambiar el estado.", "error");
+          button.disabled = false;
+        }
+      });
+    });
+
+    $("catalogTable").querySelectorAll("[data-catalog-delete]").forEach(button => {
+      button.addEventListener("click", async () => {
+        const item = state.catalog.find(entry => entry.id === button.dataset.catalogDelete);
+        if (!item || role !== "administrador") return;
+
+        if (!confirm(`¿Eliminar "${item.name}" de la tienda?\n\nEsto no afecta el stock ni las ventas.`)) return;
+
+        button.disabled = true;
+
+        try {
+          const result = await db.from("catalogo_web").delete().eq("id", item.id);
+          if (result.error) throw result.error;
+
+          removeProductImage(item.imageUrl);
+          if (editingCatalogId === item.id) editingCatalogId = null;
+
+          await loadSupabaseState();
+          renderCatalog();
+          notify("Producto eliminado de la tienda.", "success");
+        } catch (error) {
+          console.error(error);
+          notify(error.message || "No se pudo eliminar el producto.", "error");
+          button.disabled = false;
+        }
+      });
+    });
+  }
+
+  function renderStock() {
+    if (role !== "administrador") {
+      return notify("Acceso restringido.", "error");
+    }
+
+    $("workspaceContent").innerHTML = `
+      <div class="form-panel">
+        <h3>Crear producto</h3>
+
+        <form id="productForm" class="form-grid">
+          <div class="field">
+            <label for="pCode">Código único</label>
+            <input id="pCode" maxlength="50" required>
+          </div>
+
+          <div class="field">
+            <label for="pName">Nombre del producto</label>
+            <input id="pName" maxlength="150" required>
+          </div>
+
+          <div class="field wide">
+            <label for="pDescription">Descripción</label>
+            <input id="pDescription" maxlength="220" required>
+          </div>
+
+          <div class="field">
+            <label for="pPrice">
+              Valor unitario de salida / venta (COP)
+            </label>
+            <input id="pPrice" type="number" min="0"
+              step="1" required>
+          </div>
+
+          <div class="field">
+            <label for="pStock">Cantidad inicial</label>
+            <input id="pStock" type="number" min="0"
+              step="1" value="0" required>
+          </div>
+
+          <div class="field">
+            <label for="pReorder">
+              Solicitar pedido cuando el stock sea igual o inferior a
+            </label>
+            <input id="pReorder" type="number" min="0"
+              step="1" value="5" required>
+          </div>
+
+          <div>
+            <button class="btn btn-primary" type="submit">
+              Crear producto
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <h3>Tabla general de stock</h3>
+      <p class="muted">
+        El total vendido corresponde a las ventas netas después de
+        descuentos. El costo de entrada suma las entradas registradas.
+      </p>
+
+      <div id="stockTable"></div>
+    `;
+
+    $("productForm").addEventListener("submit", event => {
+      event.preventDefault();
+
+      if (role !== "administrador") {
+        return notify("Acceso restringido.", "error");
+      }
+
+      const code = $("pCode").value.trim().toUpperCase();
+      const name = $("pName").value.trim();
+      const description = $("pDescription").value.trim();
+            const price = Number($("pPrice").value);
+      const stock = Number($("pStock").value);
+      const reorderLevel = Number($("pReorder").value);
+
+      if (
+        !name ||
+        !code ||
+        !description ||
+        !Number.isFinite(price) ||
+        price < 0 ||
+        !Number.isInteger(stock) ||
+        stock < 0 ||
+        !Number.isInteger(reorderLevel) ||
+        reorderLevel < 0
+      ) {
+        return notify("Revisa los datos del producto.", "error");
+      }
+
+      if (state.products.some(product =>
+        product.code.toLowerCase() === code.toLowerCase()
+      )) {
+        return notify(
+          "Ya existe un producto con ese código.",
+          "error"
+        );
+      }
+
+      state.products.push({
+        id: crypto.randomUUID(),
+        name,
+        description,
+        code,
+        price,
+        stock,
+        reorderLevel
+      });
+
+      if (!saveState()) return;
+
+      notify("Producto creado correctamente.", "success");
+      renderDashboard();
+      renderStock();
     });
 
     renderStockTable();
@@ -2424,14 +2662,8 @@ $("shareClosing").addEventListener("click", async () => {
 
       return `
         <tr>
-          <td>${
-            safeImageUrl(product.imageUrl)
-              ? `<img class="thumb" src="${escapeHTML(safeImageUrl(product.imageUrl))}" alt="" loading="lazy">`
-              : "—"
-          }</td>
           <td>${escapeHTML(product.code)}</td>
           <td>${escapeHTML(product.description || product.name)}</td>
-          <td>${escapeHTML(product.category || "Sin categoría")}</td>
           <td>${product.stock}</td>
           <td>${money(product.price)}</td>
           <td>${money(salesTotal)}</td>
@@ -2457,10 +2689,8 @@ $("shareClosing").addEventListener("click", async () => {
 
     $("stockTable").innerHTML = table(
       [
-        "Imagen",
-        "Referencia",
+        "Código de producto",
         "Descripción de producto",
-        "Categoría",
         "Cantidad",
         "Valor unitario de salida",
         "Total vendido",
@@ -2493,12 +2723,70 @@ $("shareClosing").addEventListener("click", async () => {
       return notify("Acceso restringido.", "error");
     }
 
-    if (!state.products.some(item => item.id === id)) return;
+    const product = state.products.find(item => item.id === id);
+    if (!product) return;
 
-    editingProductId = id;
+    const code = prompt("Código del producto:", product.code);
+    if (code === null) return;
+
+    const name = prompt("Nombre del producto:", product.name);
+    if (name === null) return;
+
+    const description = prompt(
+      "Descripción del producto:",
+      product.description || product.name
+    );
+    if (description === null) return;
+
+    const priceText = prompt(
+      "Valor unitario de salida / venta en COP:",
+      String(product.price)
+    );
+    if (priceText === null) return;
+
+    const reorderText = prompt(
+      "Solicitar pedido cuando el stock sea igual o inferior a:",
+      String(product.reorderLevel ?? 5)
+    );
+    if (reorderText === null) return;
+
+    const price = Number(priceText);
+    const reorderLevel = Number(reorderText);
+    const normalizedCode = code.trim().toUpperCase();
+
+    if (
+      !normalizedCode ||
+      !name.trim() ||
+      !description.trim() ||
+      !Number.isFinite(price) ||
+      price < 0 ||
+      !Number.isInteger(reorderLevel) ||
+      reorderLevel < 0
+    ) {
+      return notify("Datos inválidos.", "error");
+    }
+
+    if (state.products.some(item =>
+      item.id !== id &&
+      item.code.toLowerCase() === normalizedCode.toLowerCase()
+    )) {
+      return notify(
+        "Ese código ya pertenece a otro producto.",
+        "error"
+      );
+    }
+
+    product.code = normalizedCode;
+    product.name = name.trim();
+    product.description = description.trim();
+    product.price = price;
+    product.reorderLevel = reorderLevel;
+
+    if (!saveState()) return;
+
+    renderDashboard();
     renderStock();
-    notify("");
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    notify("Producto actualizado.", "success");
   }
 
   function deleteProduct(id) {

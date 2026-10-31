@@ -590,7 +590,7 @@ function normalizarProducto(fila) {
         imagen: urlImagenSegura(fila.imagen_url),
         colores: colores.length ? colores : [{ nombre: "Único", valor: "#9aabcc" }],
         etiqueta: esNuevo ? "Nuevo" : "",
-        referencia: String(fila.codigo || ""),
+        referencia: String(fila.referencia || ""),
         descripcion: String(fila.descripcion || "")
     };
 }
@@ -601,8 +601,9 @@ async function cargarCatalogo() {
         if (!cliente) throw new Error("Supabase no está disponible.");
 
         const { data, error } = await cliente
-            .from("tienda_productos")
-            .select("id,codigo,nombre,descripcion,precio,categoria,colores,imagen_url,creado_en")
+            .from("catalogo_web")
+            .select("id,referencia,nombre,descripcion,precio,categoria,colores,imagen_url,creado_en")
+            .eq("activo", true)
             .order("creado_en", { ascending: false });
 
         if (error) throw error;
