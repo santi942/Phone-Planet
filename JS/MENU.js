@@ -753,6 +753,7 @@ const r = await db.rpc("registrar_entrada_mercancia", {
     const renderers = {
       sales: renderSalesForm,
       incoming: renderIncomingForm,
+      warranties: renderWarranties,
       stock: renderStock,
       salesHistory: renderSalesHistory,
       employees: renderEmployees,
@@ -1414,7 +1415,410 @@ $("shareClosing").addEventListener("click", async () => {
 
     renderCart();
   }
-    function renderIncomingForm() {
+    // =====================================================
+  // Utilidades compartidas
+  // =====================================================
+  function describeSupabaseError(error, fallback) {
+    if (!error) return fallback;
+
+    const code = error.code ? ` (código ${error.code})` : "";
+
+    if (error.code === "PGRST202") {
+      return `${fallback}: la función de Supabase no existe o sus parámetros no coinciden con los que envía la página.${code}`;
+    }
+
+    const parts = [error.message || fallback];
+    if (error.details && !String(parts[0]).includes(error.details)) parts.push(error.details);
+    if (error.hint) parts.push(`Sugerencia: ${error.hint}`);
+
+    return `${fallback}: ${parts.join(" · ")}${code}`;
+  }
+
+  async function loadHtml2Canvas() {
+    if (typeof html2canvas !== "undefined") return;
+
+    await new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+      script.onload = resolve;
+      script.onerror = () => reject(new Error("No se pudo cargar html2canvas."));
+      document.head.appendChild(script);
+    });
+  }
+
+  // Convierte un elemento en PNG y lo comparte (o lo descarga).
+  async function shareElementAsImage(element, filename, title, text) {
+    await loadHtml2Canvas();
+
+    const canvas = await html2canvas(element, {
+      scale: 2,
+      backgroundColor: "#ffffff",
+      useCORS: true
+    });
+
+    const blob = await new Promise((resolve, reject) => {
+      canvas.toBlob(image => {
+        if (image) resolve(image);
+        else reject(new Error("No se pudo crear la imagen."));
+      }, "image/png");
+    });
+
+    const file = new File([blob], filename, { type: "image/png" });
+
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ title, text, files: [file] });
+        return "compartida";
+      } catch (error) {
+        if (error?.name === "AbortError") return "cancelada";
+        throw error;
+      }
+    }
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+    return "descargada";
+  }
+
+  // =====================================================
+  // GARANTÍAS
+  // =====================================================
+  function addDaysISO(isoDate, days) {
+    const [y, m, d] = String(isoDate).slice(0, 10).split("-").map(Number);
+    const date = new Date(y, m - 1, d + Number(days));
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  }
+
+  function formatDateOnly(isoDate) {
+    if (!isoDate) return "—";
+    const [y, m, d] = String(isoDate).slice(0, 10).split("-").map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString("es-CO", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric"
+    });
+  }
+
+  function warrantyDurationText(warranty) {
+    const value = Number(warranty.durationValue) || 0;
+    const months = warranty.durationUnit === "meses";
+    const unit = months ? (value === 1 ? "mes" : "meses") : (value === 1 ? "día" : "días");
+    return `${value} ${unit}`;
+  }
+
+  function warrantyCode(warranty) {
+    return "GAR-" + String(warranty.id || "").replace(/-/g, "").slice(0, 8).toUpperCase();
+  }
+
+  function warrantyProduct(warranty) {
+    const product = state.products.find(item => item.id === warranty.productId);
+    return product
+      ? { code: product.code, description: product.description || product.name }
+      : { code: "—", description: "Producto" };
+  }
+
+  function warrantyCardHTML(warranty) {
+    const product = warrantyProduct(warranty);
+
+    return `
+      <div class="warranty-card">
+        <div class="warranty-card__head">
+          <img src="../IMG/LOGO.png" alt="" onerror="this.style.display='none'">
+          <div>
+            <strong>PHONE PLANET</strong>
+            <span>Certificado de garantía</span>
+          </div>
+        </div>
+
+        <div class="warranty-card__code">${escapeHTML(warrantyCode(warranty))}</div>
+
+        <dl class="warranty-card__rows">
+          <div><dt>Cliente</dt><dd>${escapeHTML(warranty.buyerName)}</dd></div>
+          <div><dt>Cédula</dt><dd>${escapeHTML(warranty.buyerDocument || "—")}</dd></div>
+          <div><dt>Producto</dt><dd>${escapeHTML(product.code)} · ${escapeHTML(product.description)}</dd></div>
+          <div><dt>Valor de compra</dt><dd>${money(warranty.salePrice)}</dd></div>
+          <div><dt>Fecha de compra</dt><dd>${escapeHTML(formatDateOnly(warranty.purchaseDate))}</dd></div>
+          <div><dt>Duración</dt><dd>${escapeHTML(warrantyDurationText(warranty))}</dd></div>
+          <div><dt>Vence el</dt><dd><strong>${escapeHTML(formatDateOnly(warranty.expirationDate))}</strong></dd></div>
+        </dl>
+
+        <p class="warranty-card__foot">
+          Presenta este comprobante para hacer válida tu garantía.
+        </p>
+      </div>
+    `;
+  }
+
+  async function shareWarrantyImage(warranty) {
+    const holder = document.createElement("div");
+    holder.style.cssText = "position:fixed;left:-10000px;top:0;";
+    holder.innerHTML = warrantyCardHTML(warranty);
+    document.body.appendChild(holder);
+
+    try {
+      // Esperar el logo antes de generar la imagen.
+      await Promise.all(
+        [...holder.querySelectorAll("img")].map(img =>
+          img.complete ? null : new Promise(resolve => {
+            img.onload = img.onerror = resolve;
+          })
+        )
+      );
+
+      return await shareElementAsImage(
+        holder.firstElementChild,
+        `PhonePlanet_${warrantyCode(warranty)}.png`,
+        "Garantía - Phone Planet",
+        "Comprobante de garantía"
+      );
+    } finally {
+      holder.remove();
+    }
+  }
+
+  async function shareWarrantyAndNotify(warranty) {
+    try {
+      const result = await shareWarrantyImage(warranty);
+      if (result === "descargada") notify("Imagen de la garantía descargada.", "success");
+      if (result === "compartida") notify("Garantía compartida.", "success");
+    } catch (error) {
+      console.error("Error compartiendo garantía:", error);
+      notify("No se pudo generar o compartir la imagen de la garantía.", "error");
+    }
+  }
+
+  function renderWarranties() {
+    const noProducts = state.products.length === 0;
+
+    $("workspaceContent").innerHTML = `
+      <div class="form-panel">
+        <h3>Registrar garantía</h3>
+
+        <form id="warrantyForm" class="form-grid">
+          <div class="field wide">
+            <label for="warrantyName">Nombre completo</label>
+            <input id="warrantyName" maxlength="120" autocomplete="off" required>
+          </div>
+
+          <div class="field">
+            <label for="warrantyDocument">Cédula</label>
+            <input id="warrantyDocument" inputmode="numeric"
+              maxlength="15" autocomplete="off" required>
+          </div>
+
+          <div class="field">
+            <label for="warrantyDate">Fecha de compra</label>
+            <input id="warrantyDate" type="date"
+              value="${today()}" max="${today()}" required>
+          </div>
+
+          <div class="field">
+            <label for="warrantyCode">Código del producto</label>
+            <input id="warrantyCode" placeholder="Ej. CAB-004"
+              autocomplete="off" required>
+          </div>
+
+          <div class="field wide">
+            <label for="warrantyDescription">Descripción del producto</label>
+            <input id="warrantyDescription" readonly
+              placeholder="Se completa con el código">
+          </div>
+
+          <div class="field">
+            <label for="warrantyPrice">Valor de compra</label>
+            <input id="warrantyPrice" readonly>
+          </div>
+
+          <div class="field">
+            <label for="warrantyDays">¿Por cuántos días es la garantía?</label>
+            <input id="warrantyDays" type="number" min="1" max="3650"
+              step="1" placeholder="Ej. 30" required>
+          </div>
+
+          <div class="field">
+            <label for="warrantyExpiry">La garantía vence el</label>
+            <input id="warrantyExpiry" readonly>
+          </div>
+
+          <div>
+            <button class="btn btn-primary" type="submit"
+              ${noProducts ? "disabled" : ""}>
+              Registrar garantía
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <div id="warrantyResult"></div>
+
+      <h3>Garantías registradas</h3>
+      <div id="warrantyTable"></div>
+    `;
+
+    const findProduct = () => state.products.find(product =>
+      product.code.trim().toLowerCase() === $("warrantyCode").value.trim().toLowerCase()
+    );
+
+    const updateProduct = () => {
+      const product = findProduct();
+      $("warrantyDescription").value = product ? (product.description || product.name) : "";
+      $("warrantyPrice").value = product ? money(product.price) : "";
+
+      if ($("warrantyCode").value.trim() && !product) {
+        notify("No se encontró un producto con ese código.", "error");
+      } else if (product) {
+        notify("");
+      }
+    };
+
+    const updateExpiry = () => {
+      const days = Number($("warrantyDays").value);
+      const date = $("warrantyDate").value;
+
+      $("warrantyExpiry").value = date && Number.isInteger(days) && days > 0
+        ? formatDateOnly(addDaysISO(date, days))
+        : "";
+    };
+
+    $("warrantyCode").addEventListener("input", updateProduct);
+    $("warrantyDays").addEventListener("input", updateExpiry);
+    $("warrantyDate").addEventListener("input", updateExpiry);
+
+    $("warrantyForm").addEventListener("submit", async event => {
+      event.preventDefault();
+
+      const button = event.currentTarget.querySelector('button[type="submit"]');
+      const name = $("warrantyName").value.trim().replace(/\s+/g, " ");
+      const documentId = $("warrantyDocument").value.replace(/[.\s]/g, "");
+      const product = findProduct();
+      const days = Number($("warrantyDays").value);
+      const purchaseDate = $("warrantyDate").value || today();
+
+      if (name.length < 3) {
+        return notify("Escribe el nombre completo del cliente.", "error");
+      }
+
+      if (!/^\d{5,15}$/.test(documentId)) {
+        return notify("La cédula debe tener solo números (entre 5 y 15 dígitos).", "error");
+      }
+
+      if (!product) {
+        return notify("Escribe un código de producto válido.", "error");
+      }
+
+      if (!Number.isInteger(days) || days < 1 || days > 3650) {
+        return notify("Indica los días de garantía (un número entero entre 1 y 3650).", "error");
+      }
+
+      const originalText = button.textContent;
+      button.disabled = true;
+      button.textContent = "Registrando...";
+
+      try {
+        const result = await db.from("garantias").insert({
+          producto_id: product.id,
+          venta_id: null,
+          detalle_venta_id: null,
+          registrado_por: currentUser.id,
+          comprador_nombre: name,
+          comprador_documento: documentId,
+          comprador_telefono: "",
+          fecha_compra: purchaseDate,
+          duracion_valor: days,
+          duracion_unidad: "dias",
+          fecha_vencimiento: addDaysISO(purchaseDate, days),
+          precio_venta: product.price,
+          observaciones: null
+        });
+
+        if (result.error) throw result.error;
+
+        await loadSupabaseState();
+
+        const saved = state.warranties.find(item =>
+          item.registeredBy === currentUser.id &&
+          item.productId === product.id &&
+          item.buyerDocument === documentId
+        ) || state.warranties[0];
+
+        renderWarranties();
+
+        if (saved) {
+          $("warrantyResult").innerHTML = `
+            <div class="form-panel">
+              <h3>Garantía registrada</h3>
+              ${warrantyCardHTML(saved)}
+              <div class="form-actions">
+                <button class="btn btn-primary" type="button" id="shareWarrantyNow">
+                  Compartir imagen
+                </button>
+              </div>
+            </div>
+          `;
+
+          $("shareWarrantyNow").addEventListener("click", () => shareWarrantyAndNotify(saved));
+          $("warrantyResult").scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+
+        notify("Garantía registrada correctamente.", "success");
+      } catch (error) {
+        console.error("Error registrando garantía:", error);
+        notify(describeSupabaseError(error, "No se pudo registrar la garantía"), "error");
+        button.disabled = false;
+        button.textContent = originalText;
+      }
+    });
+
+    const rows = state.warranties.map(warranty => {
+      const product = warrantyProduct(warranty);
+      const valid = String(warranty.expirationDate).slice(0, 10) >= today();
+
+      return `
+        <tr>
+          <td>${escapeHTML(formatDateOnly(warranty.purchaseDate))}</td>
+          <td>${escapeHTML(warranty.buyerName)}</td>
+          <td>${escapeHTML(warranty.buyerDocument || "—")}</td>
+          <td>${escapeHTML(product.code)} · ${escapeHTML(product.description)}</td>
+          <td>${money(warranty.salePrice)}</td>
+          <td>${escapeHTML(warrantyDurationText(warranty))}</td>
+          <td>${escapeHTML(formatDateOnly(warranty.expirationDate))}</td>
+          <td><strong class="${valid ? "stock-ok" : "stock-low"}">${valid ? "Vigente" : "Vencida"}</strong></td>
+          <td>
+            <button class="btn btn-ghost btn-small" type="button"
+              data-share-warranty="${escapeHTML(warranty.id)}">
+              Compartir imagen
+            </button>
+          </td>
+        </tr>
+      `;
+    }).join("");
+
+    $("warrantyTable").innerHTML = table(
+      ["Compra", "Cliente", "Cédula", "Producto", "Valor", "Duración", "Vence", "Estado", "Acción"],
+      rows,
+      "Todavía no hay garantías registradas."
+    );
+
+    $("warrantyTable").querySelectorAll("[data-share-warranty]").forEach(button => {
+      button.addEventListener("click", async () => {
+        const warranty = state.warranties.find(item => item.id === button.dataset.shareWarranty);
+        if (!warranty) return;
+
+        button.disabled = true;
+        await shareWarrantyAndNotify(warranty);
+        button.disabled = false;
+      });
+    });
+  }
+
+  function renderIncomingForm() {
     $("workspaceContent").innerHTML = `
       <div class="form-panel">
         <h3>Registrar entrada de mercancía</h3>
@@ -1505,8 +1909,10 @@ $("shareClosing").addEventListener("click", async () => {
     $("incomingQty").addEventListener("input", updateIncomingTotal);
     $("incomingUnitValue").addEventListener("input", updateIncomingTotal);
 
-    $("incomingForm").addEventListener("submit", event => {
+    $("incomingForm").addEventListener("submit", async event => {
       event.preventDefault();
+
+      const button = event.currentTarget.querySelector('button[type="submit"]');
 
       const product = state.products.find(
         item => item.id === $("incomingProduct").value
@@ -1514,11 +1920,8 @@ $("shareClosing").addEventListener("click", async () => {
 
       const qty = Number($("incomingQty").value);
       const unitValue = Number($("incomingUnitValue").value);
-const paymentMethod = $("incomingPaymentMethod").value;
+      const paymentMethod = $("incomingPaymentMethod").value;
 
-if (!PAYMENT_METHODS.includes(paymentMethod)) {
-  return notify("Selecciona un medio de pago válido.", "error");
-}
       if (
         !product ||
         !Number.isInteger(qty) ||
@@ -1532,35 +1935,54 @@ if (!PAYMENT_METHODS.includes(paymentMethod)) {
         );
       }
 
-      const totalCost = qty * unitValue;
-      product.stock += qty;
+      if (!PAYMENT_METHODS.includes(paymentMethod)) {
+        return notify("Selecciona un medio de pago válido.", "error");
+      }
 
-      state.incoming.push({
-        id: uid("ENT"),
-        productId: product.id,
-        productName: product.name,
-        code: product.code,
-        qty,
-        unitValue,
-        totalCost,
-        date: $("incomingDate").value || today(),
-        supplier: $("incomingSupplier").value.trim(),
-        note: $("incomingNote").value.trim(),
-        employee: role === "empleado"
-          ? "Empleado de prueba"
-          : "Administrador de prueba",
-        createdAt: new Date().toISOString()
-      });
+      const originalText = button.textContent;
+      button.disabled = true;
+      button.textContent = "Registrando...";
 
-      if (!saveState()) return;
+      try {
+        // Se guarda directamente en Supabase y solo se confirma si funcionó.
+        const result = await db.rpc("registrar_entrada_mercancia", {
+          p_producto_id: product.id,
+          p_fecha: $("incomingDate").value || today(),
+          p_cantidad: qty,
+          p_costo_unitario: unitValue,
+          p_proveedor: $("incomingSupplier").value.trim() || null,
+          p_observaciones: $("incomingNote").value.trim() || null,
+          p_medio_pago: paymentMethod
+        });
 
-      notify(
-        `Entrada registrada. Total de compra: ${money(totalCost)}. Stock actualizado.`,
-        "success"
-      );
+        if (result.error) throw result.error;
+      } catch (error) {
+        console.error("Error registrando entrada de mercancía:", error);
+        notify(
+          describeSupabaseError(error, "No se pudo registrar la entrada de mercancía"),
+          "error"
+        );
+        button.disabled = false;
+        button.textContent = originalText;
+        return;
+      }
 
-      renderDashboard();
-      renderIncomingForm();
+      // La entrada ya quedó guardada: se recargan stock e historial reales.
+      try {
+        await loadSupabaseState();
+        renderDashboard();
+        renderIncomingForm();
+        notify(
+          `Entrada registrada. Total de compra: ${money(qty * unitValue)}. Stock actualizado.`,
+          "success"
+        );
+      } catch (error) {
+        console.error(error);
+        notify(
+          "La entrada se guardó en Supabase, pero no se pudo refrescar la pantalla. Recarga la página.",
+          "error"
+        );
+      }
     });
   }
 
@@ -2505,6 +2927,37 @@ form.addEventListener("submit", async event => {
     });
   }
   if ($("backToMenu")) $("backToMenu").addEventListener("click", goBack);
+
+  // Cerrar sesión: limpia la pantalla, cierra Supabase y vuelve al login.
+  const logoutButton = $("logoutBtn");
+  if (logoutButton) {
+    logoutButton.addEventListener("click", async () => {
+      logoutButton.disabled = true;
+
+      // Borrar de la pantalla cualquier dato antes de salir.
+      state = emptyState();
+      persistedState = null;
+      ["dashboardStats", "moduleMenu", "workspaceContent"].forEach(id => {
+        const element = $(id);
+        if (element) element.innerHTML = "";
+      });
+
+      const seguridad = window.PhonePlanetSeguridad || window.GeoNorteSeguridad;
+
+      if (seguridad && typeof seguridad.cerrarSesion === "function") {
+        await seguridad.cerrarSesion();
+        return;
+      }
+
+      try {
+        await db.auth.signOut();
+      } catch (error) {
+        console.error("Error cerrando sesión:", error);
+      }
+
+      window.location.replace("LOGIN.html");
+    });
+  }
 
   // Indicadores de reposición visibles aunque el CSS no tenga estas clases.
   if (!document.getElementById("phonePlanetStockStatusStyle")) {

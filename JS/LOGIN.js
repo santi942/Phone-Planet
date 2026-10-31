@@ -248,7 +248,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             // MODIFICADO 4:
             // Usar la ruta relativa al proyecto actual.
-            window.location.href = "MENU.html";
+            window.location.replace("MENU.html");
 
         } catch (error) {
             console.error(

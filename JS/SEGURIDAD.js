@@ -13,7 +13,19 @@
     let cerrandoSesion = false;
 
     function irAlLogin() {
+        // replace() evita que esta página quede en el historial:
+        // la flecha "atrás" no puede volver al panel.
         window.location.replace(PAGINA_LOGIN);
+    }
+
+    function limpiarSesionLocal() {
+        try {
+            Object.keys(localStorage)
+                .filter(clave => /^sb-.*-auth-token/.test(clave))
+                .forEach(clave => localStorage.removeItem(clave));
+        } catch (_) {
+            // El almacenamiento puede estar bloqueado.
+        }
     }
 
     async function protegerPagina() {
@@ -50,15 +62,26 @@
         clearTimeout(temporizador);
 
         temporizador = setTimeout(() => {
-            cerrarSesion();
+            cerrarSesion("Tu sesión se cerró por inactividad.");
         }, TIEMPO_INACTIVIDAD);
     }
 
-    async function cerrarSesion() {
+    async function cerrarSesion(
+        motivo = "Sesión cerrada correctamente."
+    ) {
         if (cerrandoSesion) return;
 
         cerrandoSesion = true;
         clearTimeout(temporizador);
+
+        // Ocultar de inmediato lo que haya en pantalla.
+        document.documentElement.style.visibility = "hidden";
+
+        try {
+            sessionStorage.setItem("phonePlanetMensaje", motivo);
+        } catch (_) {
+            // Sin almacenamiento simplemente no se muestra el aviso.
+        }
 
         try {
             const { error } =
@@ -70,6 +93,7 @@
         } catch (error) {
             console.error("Error cerrando sesión:", error);
         } finally {
+            limpiarSesionLocal();
             irAlLogin();
         }
     }
@@ -84,21 +108,34 @@
         }
     );
 
-    // Redirigir solo cuando la sesión se haya cerrado realmente.
+    // Redirigir solo cuando la sesión se haya cerrado realmente
+    // (también cuando se cierra desde otra pestaña).
     clienteSupabase.auth.onAuthStateChange((evento) => {
         if (evento === "SIGNED_OUT") {
             irAlLogin();
         }
     });
 
-    // Comprobar la sesión al cargar o restaurar la página.
-    window.addEventListener("pageshow", protegerPagina);
+    // Al volver con la flecha "atrás" el navegador puede restaurar la
+    // página desde su memoria (bfcache) con todo su estado anterior.
+    // Se vuelve a comprobar la sesión siempre.
+    window.addEventListener("pageshow", (evento) => {
+        if (cerrandoSesion) {
+            irAlLogin();
+            return;
+        }
+
+        if (evento.persisted) {
+            comprobandoSesion = false;
+        }
+
+        protegerPagina();
+    });
 
     protegerPagina();
 
     // Permitir que otros archivos usen estas funciones.
-    window.GeoNorteSeguridad = {
-        cerrarSesion,
-        reiniciarTemporizador
-    };
+    const api = { cerrarSesion, reiniciarTemporizador };
+    window.PhonePlanetSeguridad = api;
+    window.GeoNorteSeguridad = api; // nombre anterior, por compatibilidad
 })();
