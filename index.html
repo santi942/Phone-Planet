@@ -3,79 +3,72 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#02091c">
-    <meta name="description" content="Phone Planet: accesorios para celulares, fundas, cargadores, audífonos y más.">
-    <title>Phone Planet | Tu universo de accesorios</title>
+    <meta name="theme-color" content="#050b1f">
+    <meta name="description" content="Phone Planet: fundas, cargadores, audífonos, cables y smartwatches. Pide por WhatsApp y coordinamos el envío a toda Colombia.">
+    <title>Phone Planet | Accesorios para tu celular</title>
 
-    <link rel="stylesheet" href="CSS/Index.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Space+Grotesk:wght@500;600;700&display=swap">
     <link rel="stylesheet"
           href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
-          <link rel="icon" type="image/x-icon" href="../IMG/ICONO.ico">
+    <link rel="stylesheet" href="CSS/Index.css">
+
+    <link rel="icon" type="image/x-icon" sizes="any" href="IMG/ICONO.ico?v=2">
+    <link rel="shortcut icon" type="image/x-icon" href="IMG/ICONO.ico?v=2">
+    <link rel="apple-touch-icon" href="IMG/LOGO.png">
 </head>
 <body>
     <header class="encabezado" id="inicio">
         <a href="#inicio" class="marca" aria-label="Phone Planet, inicio">
-            <img src="IMG/LOGO.png" alt="Logo de Phone Planet" class="logo-imagen"
-                 onerror="this.onerror=null;this.src='IMG/LOGO.png';">
-            <span class="marca-texto">PHONE<br>PLANET</span>
+            <img src="IMG/LOGO.png" alt="" class="logo-imagen">
+            <span class="marca-texto">Phone Planet</span>
         </a>
 
-        <button class="menu-movil" id="menu-movil" type="button"
-                aria-label="Abrir menú" aria-expanded="false">
-            <i class="fa-solid fa-bars"></i>
-        </button>
-
-        <nav class="navegacion" id="navegacion">
-            <a href="#inicio" class="enlace activo"><i class="fa-solid fa-house"></i><span>Inicio</span></a>
-            <a href="#productos" class="enlace"><i class="fa-solid fa-box-open"></i><span>Productos</span></a>
-            <a href="#nosotros" class="enlace"><i class="fa-solid fa-users"></i><span>Nosotros</span></a>
-            <a href="#contacto" class="enlace"><i class="fa-regular fa-comment-dots"></i><span>Contacto</span></a>
+        <nav class="navegacion" id="navegacion" aria-label="Principal">
+            <a href="#inicio" class="enlace activo">Inicio</a>
+            <a href="#productos" class="enlace">Productos</a>
+            <a href="#nosotros" class="enlace">Nosotros</a>
+            <a href="#contacto" class="enlace">Contacto</a>
         </nav>
 
         <form class="busqueda" id="form-busqueda" role="search">
-            <i class="fa-solid fa-magnifying-glass"></i>
-            <input type="search" id="buscar-productos" placeholder="Buscar productos..."
-                   aria-label="Buscar productos">
+            <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+            <input type="search" id="buscar-productos" placeholder="Buscar productos"
+                   aria-label="Buscar productos" autocomplete="off">
             <button type="button" id="limpiar-busqueda" class="limpiar-busqueda"
                     aria-label="Limpiar búsqueda" hidden>&times;</button>
         </form>
 
-        <button class="icono-carrito" id="abrir-carrito" type="button"
-                aria-label="Abrir carrito de compras">
-            <i class="fa-solid fa-cart-shopping"></i>
-            <span class="contador-carrito" id="contador-carrito">0</span>
-        </button>
+        <div class="acciones-encabezado">
+            <button class="icono-carrito" id="abrir-carrito" type="button"
+                    aria-label="Abrir carrito de compras">
+                <i class="fa-solid fa-bag-shopping" aria-hidden="true"></i>
+                <span class="contador-carrito" id="contador-carrito">0</span>
+            </button>
 
-        <a href="HTML/LOGIN.html" class="boton-login">
-            <i class="fa-regular fa-user"></i><span>Iniciar sesión</span>
-        </a>
+            <a href="HTML/LOGIN.html" class="boton-login">
+                <i class="fa-regular fa-user" aria-hidden="true"></i><span>Acceso equipo</span>
+            </a>
+
+            <button class="menu-movil" id="menu-movil" type="button"
+                    aria-label="Abrir menú" aria-expanded="false" aria-controls="navegacion">
+                <i class="fa-solid fa-bars" aria-hidden="true"></i>
+            </button>
+        </div>
     </header>
 
     <main>
         <section class="portada" aria-labelledby="titulo-portada">
             <div class="portada-contenido">
-                <p class="etiqueta-portada"><i class="fa-solid fa-satellite"></i> TECNOLOGÍA A OTRO NIVEL</p>
-                <h1 id="titulo-portada">TU UNIVERSO <span>DE ACCESORIOS</span></h1>
-                <p class="descripcion">Lleva tu mundo digital a otra galaxia.</p>
-                <a href="#productos" class="boton-explorar">
-                    <i class="fa-solid fa-rocket"></i>
-                    <span>EXPLORAR PRODUCTOS</span>
-                    <i class="fa-solid fa-chevron-right flecha"></i>
-                </a>
-
-                <div class="beneficios">
-                    <div class="beneficio">
-                        <i class="fa-solid fa-truck-fast"></i>
-                        <span>Envíos a<br>toda Colombia</span>
-                    </div>
-                    <div class="beneficio">
-                        <i class="fa-solid fa-shield-halved"></i>
-                        <span>Compra confiable</span>
-                    </div>
-                    <div class="beneficio">
-                        <i class="fa-solid fa-award"></i>
-                        <span>Accesorios<br>para tu día a día</span>
-                    </div>
+                <h1 id="titulo-portada">Tu universo de accesorios</h1>
+                <p class="descripcion">Fundas, cargadores, audífonos y smartwatches para tu día a día. Arma tu pedido y envíalo por WhatsApp; nosotros coordinamos el pago y el envío contigo.</p>
+                <div class="acciones-portada">
+                    <a href="#productos" class="boton-explorar">Ver productos</a>
+                    <button type="button" class="boton-ver-carrito" id="portada-carrito">
+                        <i class="fa-solid fa-bag-shopping" aria-hidden="true"></i> Ver mi carrito
+                    </button>
                 </div>
             </div>
 
@@ -86,48 +79,59 @@
             </div>
         </section>
 
+        <section class="beneficios" aria-label="Por qué comprar en Phone Planet">
+            <div class="beneficio">
+                <i class="fa-solid fa-truck-fast" aria-hidden="true"></i>
+                <span><strong>Envíos a toda Colombia</strong>Coordinamos el envío contigo</span>
+            </div>
+            <div class="beneficio">
+                <i class="fa-brands fa-whatsapp" aria-hidden="true"></i>
+                <span><strong>Pedido por WhatsApp</strong>Atención directa y sin registro</span>
+            </div>
+            <div class="beneficio">
+                <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
+                <span><strong>Compra confiable</strong>Productos con garantía</span>
+            </div>
+        </section>
+
         <section class="categorias seccion" aria-labelledby="titulo-categorias">
-            <div class="titulo-seccion centrado">
-                <span class="icono-titulo"><i class="fa-solid fa-satellite"></i></span>
+            <div class="titulo-seccion">
                 <div>
-                    <h2 id="titulo-categorias">EXPLORA LA <span>GALAXIA</span></h2>
-                    <p>Encuentra todo lo que tu celular necesita</p>
+                    <h2 id="titulo-categorias">Explora por categoría</h2>
+                    <p>Encuentra lo que tu celular necesita</p>
                 </div>
-                <span class="icono-titulo planeta-icono"><i class="fa-solid fa-earth-americas"></i></span>
             </div>
 
             <div class="rejilla-categorias">
                 <button class="tarjeta-categoria" type="button" data-categoria="Fundas">
                     <img src="IMG/categoria-fundas.png" alt="" loading="lazy">
                     <span class="texto-categoria"><strong>Fundas</strong><small>Protección con estilo</small></span>
-                    <i class="fa-solid fa-chevron-right flecha-categoria"></i>
+                    <i class="fa-solid fa-chevron-right flecha-categoria" aria-hidden="true"></i>
                 </button>
                 <button class="tarjeta-categoria" type="button" data-categoria="Cargadores">
                     <img src="IMG/categoria-cargadores.png" alt="" loading="lazy">
                     <span class="texto-categoria"><strong>Cargadores</strong><small>Energía sin límites</small></span>
-                    <i class="fa-solid fa-chevron-right flecha-categoria"></i>
+                    <i class="fa-solid fa-chevron-right flecha-categoria" aria-hidden="true"></i>
                 </button>
                 <button class="tarjeta-categoria" type="button" data-categoria="Audífonos">
                     <img src="IMG/categoria-audifonos.png" alt="" loading="lazy">
                     <span class="texto-categoria"><strong>Audífonos</strong><small>Sonido de otro planeta</small></span>
-                    <i class="fa-solid fa-chevron-right flecha-categoria"></i>
+                    <i class="fa-solid fa-chevron-right flecha-categoria" aria-hidden="true"></i>
                 </button>
                 <button class="tarjeta-categoria" type="button" data-categoria="Smartwatches">
                     <img src="IMG/categoria-smartwatches.png" alt="" loading="lazy">
                     <span class="texto-categoria"><strong>Smartwatches</strong><small>Mucho más que un reloj</small></span>
-                    <i class="fa-solid fa-chevron-right flecha-categoria"></i>
+                    <i class="fa-solid fa-chevron-right flecha-categoria" aria-hidden="true"></i>
                 </button>
-                
             </div>
         </section>
 
         <section class="productos seccion" id="productos" aria-labelledby="titulo-productos">
             <div class="encabezado-productos">
-                <div class="titulo-seccion titulo-izquierda">
-                    <span class="icono-titulo"><i class="fa-solid fa-rocket"></i></span>
+                <div class="titulo-seccion">
                     <div>
-                        <h2 id="titulo-productos">PRODUCTOS <span>DESTACADOS</span></h2>
-                        <p>Elige tus favoritos y agrégalos al carrito</p>
+                        <h2 id="titulo-productos">Productos destacados</h2>
+                        <p>Elige color y cantidad, y agrégalos al carrito</p>
                     </div>
                 </div>
 
@@ -148,32 +152,29 @@
             <div class="rejilla-productos" id="rejilla-productos"></div>
         </section>
 
-        <section class="nosotros seccion" id="nosotros">
+        <section class="nosotros seccion" id="nosotros" aria-labelledby="titulo-nosotros">
             <div class="nosotros-contenido">
-                <span class="etiqueta-portada">BIENVENIDO A PHONE PLANET</span>
-                <h2>Tu tecnología, <span>tu universo.</span></h2>
+                <h2 id="titulo-nosotros">Tu tecnología, tu universo</h2>
                 <p>Somos una tienda de accesorios para celulares que busca acompañarte con productos prácticos, modernos y con estilo. Explora el catálogo y encuentra el complemento ideal para tus dispositivos.</p>
             </div>
-            <div class="nosotros-sello"><i class="fa-solid fa-earth-americas"></i><strong>PHONE<br>PLANET</strong></div>
+            <div class="nosotros-sello" aria-hidden="true">
+                <i class="fa-solid fa-earth-americas"></i>
+            </div>
         </section>
     </main>
 
     <footer class="pie-pagina" id="contacto">
         <div class="pie-principal">
-            <a href="#inicio" class="marca marca-footer">
-                <img src="IMG/LOGO.jpg" alt="Phone Planet"
-                     class="logo-imagen"
-                     onerror="this.onerror=null;this.src='IMG/LOGO.png';">
-                <span class="marca-texto">PHONE<br>PLANET</span>
-            </a>
-
-            <div class="pie-columna sobre-pie">
-                <h3>Sobre Phone Planet</h3>
+            <div class="pie-marca">
+                <a href="#inicio" class="marca marca-footer" aria-label="Phone Planet, inicio">
+                    <img src="IMG/LOGO.png" alt="" class="logo-imagen">
+                    <span class="marca-texto">Phone Planet</span>
+                </a>
                 <p>Accesorios para celulares que llevan tu mundo digital a otra galaxia.</p>
             </div>
 
             <div class="pie-columna">
-                <h3>Enlaces rápidos</h3>
+                <h3>Enlaces</h3>
                 <a href="#inicio">Inicio</a>
                 <a href="#productos">Productos</a>
                 <a href="#nosotros">Nosotros</a>
@@ -181,14 +182,9 @@
 
             <div class="pie-columna">
                 <h3>Contacto</h3>
-                <p><i class="fa-regular fa-envelope"></i> hola@phoneplanet.com</p>
-                <p><i class="fa-solid fa-location-dot"></i> Colombia</p>
-            </div>
-
-            <div class="pie-columna">
-                <h3>Tu compra</h3>
-                <p><i class="fa-solid fa-truck-fast"></i> Envíos a Colombia</p>
-                <p><i class="fa-solid fa-shield-halved"></i> Atención confiable</p>
+                <p><i class="fa-regular fa-envelope" aria-hidden="true"></i> hola@phoneplanet.com</p>
+                <p><i class="fa-brands fa-whatsapp" aria-hidden="true"></i> Pedidos por WhatsApp</p>
+                <p><i class="fa-solid fa-location-dot" aria-hidden="true"></i> Colombia</p>
             </div>
         </div>
         <div class="pie-inferior">© <span id="anio-actual"></span> Phone Planet. Todos los derechos reservados.</div>
@@ -196,34 +192,86 @@
 
     <!-- PANEL DEL CARRITO -->
     <div class="fondo-modal" id="fondo-modal" hidden></div>
-    <aside class="panel-carrito" id="panel-carrito" aria-labelledby="titulo-carrito"
-           aria-hidden="true">
+    <aside class="panel-carrito" id="panel-carrito" aria-labelledby="titulo-carrito" aria-hidden="true">
         <div class="cabecera-carrito">
-            <div>
-                <p class="etiqueta-portada">TU SELECCIÓN</p>
-                <h2 id="titulo-carrito"><i class="fa-solid fa-cart-shopping"></i> Mi carrito</h2>
-            </div>
+            <h2 id="titulo-carrito">Mi carrito</h2>
             <button type="button" class="cerrar-carrito" id="cerrar-carrito"
                     aria-label="Cerrar carrito">&times;</button>
         </div>
 
         <div class="contenido-carrito" id="lista-carrito"></div>
-        <p class="carrito-vacio" id="carrito-vacio">
-            <i class="fa-solid fa-basket-shopping"></i>
+        <div class="carrito-vacio" id="carrito-vacio">
+            <i class="fa-solid fa-bag-shopping" aria-hidden="true"></i>
             <strong>Tu carrito está vacío</strong>
-            <span>Explora la galaxia y agrega tus productos favoritos.</span>
-            <button type="button" class="boton-secundario" id="seguir-comprando">Seguir comprando</button>
-        </p>
+            <span>Agrega productos del catálogo para armar tu pedido.</span>
+            <button type="button" class="boton-secundario" id="seguir-comprando">Ver productos</button>
+        </div>
 
         <div class="resumen-carrito">
             <div class="linea-total"><span>Subtotal</span><strong id="subtotal-carrito">$ 0</strong></div>
-            <p class="nota-carrito">El envío se coordina al confirmar el pedido.</p>
+            <p class="nota-carrito">El envío y el pago se coordinan por WhatsApp al confirmar tu pedido.</p>
             <button type="button" class="boton-pagar" id="boton-pagar">
-                Continuar pedido <i class="fa-solid fa-arrow-right"></i>
+                <i class="fa-brands fa-whatsapp" aria-hidden="true"></i> Finalizar por WhatsApp
             </button>
             <button type="button" class="vaciar-carrito" id="vaciar-carrito">Vaciar carrito</button>
         </div>
     </aside>
+
+    <!-- DATOS PARA EL PEDIDO -->
+    <dialog class="dialogo-pedido" id="dialogo-pedido" aria-labelledby="titulo-pedido">
+        <form id="form-pedido" novalidate>
+            <div class="dialogo-cabecera">
+                <h2 id="titulo-pedido">Datos para tu pedido</h2>
+                <button type="button" class="cerrar-carrito" id="cerrar-pedido" aria-label="Cerrar">&times;</button>
+            </div>
+
+            <p class="dialogo-ayuda">Con estos datos armamos el mensaje. Se abrirá WhatsApp para que lo envíes.</p>
+
+            <div class="campo">
+                <label for="pedido-nombre">Nombre completo</label>
+                <input id="pedido-nombre" name="nombre" type="text" maxlength="80"
+                       autocomplete="name" required>
+            </div>
+
+            <div class="campos-doble">
+                <div class="campo">
+                    <label for="pedido-ciudad">Ciudad</label>
+                    <input id="pedido-ciudad" name="ciudad" type="text" maxlength="60"
+                           autocomplete="address-level2" required>
+                </div>
+                <div class="campo">
+                    <label for="pedido-telefono">Tu celular</label>
+                    <input id="pedido-telefono" name="telefono" type="tel" inputmode="tel"
+                           maxlength="15" autocomplete="tel" required>
+                </div>
+            </div>
+
+            <div class="campo">
+                <label for="pedido-direccion">Dirección de entrega</label>
+                <input id="pedido-direccion" name="direccion" type="text" maxlength="120"
+                       autocomplete="street-address" required>
+            </div>
+
+            <div class="campo">
+                <label for="pedido-notas">Notas <span class="opcional">(opcional)</span></label>
+                <textarea id="pedido-notas" name="notas" rows="2" maxlength="200"></textarea>
+            </div>
+
+            <div class="dialogo-total">
+                <span>Total del pedido</span>
+                <strong id="pedido-total">$ 0</strong>
+            </div>
+
+            <p class="dialogo-error" id="pedido-error" role="alert" hidden></p>
+
+            <div class="dialogo-acciones">
+                <button type="button" class="boton-secundario" id="cancelar-pedido">Volver al carrito</button>
+                <button type="submit" class="boton-pagar boton-enviar">
+                    <i class="fa-brands fa-whatsapp" aria-hidden="true"></i> Enviar pedido
+                </button>
+            </div>
+        </form>
+    </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
