@@ -11,9 +11,11 @@
    Escríbelo con el código de país y sin +, espacios ni guiones.
    Colombia = 57. Ejemplo: "573001234567"
 ========================================= */
-const WHATSAPP_NUMERO = "";
+const WHATSAPP_NUMERO = "573213293215";
 
-const productos = [
+/* Catálogo de ejemplo: solo se usa si la tienda no puede leer productos de Supabase
+   (o si no hay ninguno creado todavía y USAR_EJEMPLOS_SI_VACIO es true). */
+const PRODUCTOS_BASE = [
     {
         id: "funda-space",
         nombre: "Funda Space Astronaut",
@@ -95,6 +97,15 @@ const productos = [
     }
 ];
 
+let productos = PRODUCTOS_BASE;
+
+/* Mientras no hayas creado productos desde el menú de administrador, se muestra
+   el catálogo de ejemplo. Cámbialo a false cuando quieras ver solo tus productos. */
+const USAR_EJEMPLOS_SI_VACIO = true;
+const CATEGORIAS_BASE = ["Fundas", "Cargadores", "Audífonos", "Cables", "Smartwatches"];
+const IMAGEN_RESPALDO = "IMG/fondo-galactico.png";
+const DIAS_PRODUCTO_NUEVO = 14;
+
 const CLAVE_CARRITO = "phonePlanetCarrito";
 const formatoCOP = valor => new Intl.NumberFormat("es-CO", {
     style: "currency",
@@ -112,7 +123,7 @@ const carritoVacio = porId("carrito-vacio");
 const subtotalCarrito = porId("subtotal-carrito");
 const toast = porId("toast");
 
-let carrito = cargarCarrito();
+let carrito = [];
 let categoriaActiva = "Todos";
 let textoBusqueda = "";
 let toastTimeout;
@@ -194,11 +205,13 @@ function renderizarProductos() {
                 <img src="${escaparHTML(producto.imagen)}"
                      alt="${escaparHTML(producto.nombre)}"
                      loading="lazy"
-                     onerror="this.onerror=null;this.src='IMG/fondo-galactico.png';">
+                     onerror="this.onerror=null;this.src='${IMAGEN_RESPALDO}';">
             </div>
             <div class="detalle-producto">
-                <span class="categoria-producto">${escaparHTML(producto.categoria)}</span>
+                <span class="categoria-producto">${escaparHTML(producto.categoria)}${producto.referencia ? ` · Ref. ${escaparHTML(producto.referencia)}` : ""}</span>
                 <h3 class="nombre-producto">${escaparHTML(producto.nombre)}</h3>
+                ${producto.descripcion && producto.descripcion !== producto.nombre
+                    ? `<p class="descripcion-producto">${escaparHTML(producto.descripcion)}</p>` : ""}
                 <p class="precio-producto">${formatoCOP(producto.precio)}</p>
                 <div class="opciones-producto">
                     <span class="etiqueta-opcion">Color: <strong class="color-elegido">${escaparHTML(producto.colores[0].nombre)}</strong></span>
@@ -553,6 +566,77 @@ navegacion.querySelectorAll("a").forEach(enlace => {
     });
 });
 
+/* CATÁLOGO DESDE SUPABASE */
+function urlImagenSegura(url) {
+    const texto = String(url || "");
+    return /^https:\/\//i.test(texto) || /^IMG\//.test(texto) ? texto : IMAGEN_RESPALDO;
+}
+
+function normalizarProducto(fila) {
+    const colores = (Array.isArray(fila.colores) ? fila.colores : [])
+        .filter(color => color && typeof color.nombre === "string" && color.nombre.trim() &&
+                         /^#[0-9a-f]{6}$/i.test(String(color.valor || "")))
+        .slice(0, 8)
+        .map(color => ({ nombre: color.nombre.trim().slice(0, 30), valor: color.valor.toLowerCase() }));
+
+    const creado = fila.creado_en ? new Date(fila.creado_en).getTime() : 0;
+    const esNuevo = creado && (Date.now() - creado) < DIAS_PRODUCTO_NUEVO * 86400000;
+
+    return {
+        id: String(fila.id),
+        nombre: String(fila.nombre || "Producto"),
+        categoria: String(fila.categoria || "").trim() || "Otros",
+        precio: Number(fila.precio) || 0,
+        imagen: urlImagenSegura(fila.imagen_url),
+        colores: colores.length ? colores : [{ nombre: "Único", valor: "#9aabcc" }],
+        etiqueta: esNuevo ? "Nuevo" : "",
+        referencia: String(fila.codigo || ""),
+        descripcion: String(fila.descripcion || "")
+    };
+}
+
+async function cargarCatalogo() {
+    try {
+        const cliente = window.clienteSupabase;
+        if (!cliente) throw new Error("Supabase no está disponible.");
+
+        const { data, error } = await cliente
+            .from("tienda_productos")
+            .select("id,codigo,nombre,descripcion,precio,categoria,colores,imagen_url,creado_en")
+            .order("creado_en", { ascending: false });
+
+        if (error) throw error;
+
+        const lista = (data || []).map(normalizarProducto).filter(p => p.precio > 0);
+        if (lista.length || !USAR_EJEMPLOS_SI_VACIO) return lista;
+        return PRODUCTOS_BASE;
+    } catch (error) {
+        console.error("Phone Planet: no se pudo leer el catálogo de Supabase.", error);
+        return PRODUCTOS_BASE;
+    }
+}
+
+// El filtro incluye siempre las categorías base y las que existan en los productos.
+function actualizarFiltroCategorias() {
+    const filtro = porId("filtro-categoria");
+    const extra = productos.map(p => p.categoria).filter(c => !CATEGORIAS_BASE.includes(c));
+    const categorias = [...CATEGORIAS_BASE, ...new Set(extra)];
+
+    filtro.replaceChildren(new Option("Todas las categorías", "Todos"));
+    categorias.forEach(categoria => filtro.appendChild(new Option(categoria, categoria)));
+    filtro.value = categoriaActiva;
+}
+
+async function iniciarTienda() {
+    rejillaProductos.innerHTML = '<p class="estado-carga">Cargando productos…</p>';
+
+    productos = await cargarCatalogo();
+    carrito = cargarCarrito();
+
+    actualizarFiltroCategorias();
+    renderizarProductos();
+    renderizarCarrito();
+}
+
 porId("anio-actual").textContent = new Date().getFullYear();
-renderizarProductos();
-renderizarCarrito();
+iniciarTienda();

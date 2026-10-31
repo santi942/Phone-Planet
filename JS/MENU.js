@@ -156,15 +156,25 @@
     const normalizedRole = String(currentProfile.rol || "").toLowerCase();
     role = normalizedRole.includes("admin") || normalizedRole === "administrador" ? "administrador" : "empleado";
 
-    const [productsR, profilesR, salesR, detailsR, incomingR] = await Promise.all([
-      db.from("productos").select("id,codigo,nombre,descripcion,precio,stock,nivel_reorden,activo,creado_en").eq("activo", true).order("nombre"),
+    let [productsR, profilesR, salesR, detailsR, incomingR] = await Promise.all([
+      db.from("productos").select("id,codigo,nombre,descripcion,precio,stock,nivel_reorden,activo,creado_en,categoria,colores,imagen_url").eq("activo", true).order("nombre"),
      db.from("perfiles")
   .select("id,nombre,rol,codigo_usuario,email,activo")
   .order("nombre"),
-      db.from("ventas").select("id,empleado_id,fecha,medio_pago,nota,subtotal,descuento,total,creado_en").order("fecha", { ascending: false }),
+      db.from("ventas").select("id,empleado_id,empleado_nombre,fecha,medio_pago,nota,subtotal,descuento,total,creado_en").order("fecha", { ascending: false }),
       db.from("detalle_ventas").select("id,venta_id,producto_id,codigo_producto,nombre_producto,cantidad,precio_original,descuento_unitario,precio_unitario,total_linea"),
       db.from("entradas_mercancia").select("id,producto_id,registrado_por,fecha,cantidad,costo_unitario,costo_total,proveedor,observaciones,creado_en").order("fecha", { ascending: false })
     ]);
+    // Si todavía no se ejecutó el SQL que agrega ventas.empleado_nombre,
+    // se consulta sin esa columna para no romper el sistema.
+    if (salesR.error && salesR.error.code === "42703") {
+      salesR = await db.from("ventas").select("id,empleado_id,fecha,medio_pago,nota,subtotal,descuento,total,creado_en").order("fecha", { ascending: false });
+    }
+    // Si todavía no se ejecutó el SQL de productos (categoria, colores, imagen_url),
+    // se consulta sin esas columnas para no romper el sistema.
+    if (productsR.error && productsR.error.code === "42703") {
+      productsR = await db.from("productos").select("id,codigo,nombre,descripcion,precio,stock,nivel_reorden,activo,creado_en").eq("activo", true).order("nombre");
+    }
     const products = resultOrThrow(productsR, "No se pudieron cargar los productos");
     const profiles = resultOrThrow(profilesR, "No se pudieron cargar los perfiles");
     const sales = resultOrThrow(salesR, "No se pudieron cargar las ventas");
@@ -200,7 +210,7 @@
 
 
     state = emptyState();
-    state.products = products.map(p => ({ id:p.id, code:p.codigo, name:p.nombre, description:p.descripcion || p.nombre, price:Number(p.precio)||0, stock:Number(p.stock)||0, reorderLevel:Number(p.nivel_reorden)||0, active:p.activo }));
+    state.products = products.map(p => ({ id:p.id, code:p.codigo, name:p.nombre, description:p.descripcion || p.nombre, price:Number(p.precio)||0, stock:Number(p.stock)||0, reorderLevel:Number(p.nivel_reorden)||0, active:p.activo, category:p.categoria || "", colors:Array.isArray(p.colores) ? p.colores : [], imageUrl:p.imagen_url || "" }));
     state.employees = profiles.map(p => ({
   id: p.id,
   name: p.nombre || p.email || p.codigo_usuario || "Usuario",
@@ -211,7 +221,7 @@
 }));
     state.sales = details.map(d => {
       const sale = sales.find(s => s.id === d.venta_id) || {};
-      return { id:d.id, transactionId:d.venta_id, employeeId:sale.empleado_id, productId:d.producto_id, productCode:d.codigo_producto, productName:d.nombre_producto, description:d.nombre_producto, qty:Number(d.cantidad)||0, originalUnitPrice:Number(d.precio_original)||0, discountPerUnit:Number(d.descuento_unitario)||0, unitPrice:Number(d.precio_unitario)||0, total:Number(d.total_linea)||0, paymentMethod:sale.medio_pago, date:sale.fecha, createdAt:sale.creado_en, note:sale.nota || "" };
+      return { id:d.id, transactionId:d.venta_id, employeeId:sale.empleado_id, employeeLabel:sale.empleado_nombre || "", productId:d.producto_id, productCode:d.codigo_producto, productName:d.nombre_producto, description:d.nombre_producto, qty:Number(d.cantidad)||0, originalUnitPrice:Number(d.precio_original)||0, discountPerUnit:Number(d.descuento_unitario)||0, unitPrice:Number(d.precio_unitario)||0, total:Number(d.total_linea)||0, paymentMethod:sale.medio_pago, date:sale.fecha, createdAt:sale.creado_en, note:sale.nota || "" };
     });
     state.incoming = incoming.map(e => {
       const product = products.find(p => p.id === e.producto_id);
@@ -916,7 +926,7 @@ const r = await db.rpc("registrar_entrada_mercancia", {
         state.sales.slice().reverse().slice(0, 8).map(sale => `
           <tr>
             <td>${escapeHTML(sale.date)}</td>
-            <td>${escapeHTML(employeeName(sale.employeeId))}</td>
+            <td>${escapeHTML(saleEmployeeName(sale))}</td>
             <td>${escapeHTML(sale.productName)}</td>
             <td>${sale.qty}</td>
             <td>${money(sale.total)}</td>
@@ -1986,18 +1996,116 @@ $("shareClosing").addEventListener("click", async () => {
     });
   }
 
+  // =====================================================
+  // PRODUCTOS (crear / editar) - solo administradores
+  // =====================================================
+  const CATEGORIAS_BASE = ["Fundas", "Cargadores", "Audífonos", "Cables", "Smartwatches"];
+  const BUCKET_PRODUCTOS = "productos";
+  const MAX_IMAGEN_BYTES = 5 * 1024 * 1024;
+  let editingProductId = null;
+
+  function productCategories() {
+    const extra = state.products
+      .map(product => product.category)
+      .filter(category => category && !CATEGORIAS_BASE.includes(category));
+    return [...CATEGORIAS_BASE, ...new Set(extra)];
+  }
+
+  function isHexColor(value) {
+    return /^#[0-9a-f]{6}$/i.test(String(value || ""));
+  }
+
+  function safeImageUrl(url) {
+    return /^https:\/\//i.test(String(url || "")) ? String(url) : "";
+  }
+
+  // Reduce la imagen (máx. 900 px) conservando su formato para no subir fotos pesadas.
+  async function prepareProductImage(file) {
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      throw new Error("La imagen debe ser PNG, JPG o WEBP.");
+    }
+    if (file.size > MAX_IMAGEN_BYTES) {
+      throw new Error("La imagen pesa más de 5 MB. Usa una más liviana.");
+    }
+
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, 900 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, file.type, 0.88));
+    if (!blob) throw new Error("No se pudo procesar la imagen.");
+
+    const type = ["image/png", "image/jpeg", "image/webp"].includes(blob.type) ? blob.type : "image/png";
+    const ext = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" }[type];
+    return { blob, type, ext };
+  }
+
+  async function uploadProductImage(file) {
+    const image = await prepareProductImage(file);
+    const path = `${crypto.randomUUID()}.${image.ext}`;
+
+    const upload = await db.storage.from(BUCKET_PRODUCTOS).upload(path, image.blob, {
+      contentType: image.type,
+      cacheControl: "31536000",
+      upsert: false
+    });
+
+    if (upload.error) {
+      const message = String(upload.error.message || "");
+      if (/bucket not found/i.test(message)) {
+        throw new Error("Falta crear la carpeta de imágenes en Supabase. Ejecuta el script SQL de productos.");
+      }
+      if (/row-level security|violates|not authorized|unauthorized/i.test(message)) {
+        throw new Error("Supabase no permite subir imágenes con esta cuenta. Solo los administradores pueden hacerlo.");
+      }
+      throw new Error(`No se pudo subir la imagen: ${message}`);
+    }
+
+    return db.storage.from(BUCKET_PRODUCTOS).getPublicUrl(path).data.publicUrl;
+  }
+
+  async function removeProductImage(url) {
+    const marker = `/storage/v1/object/public/${BUCKET_PRODUCTOS}/`;
+    const index = String(url || "").indexOf(marker);
+    if (index === -1) return;
+
+    try {
+      await db.storage.from(BUCKET_PRODUCTOS).remove([decodeURIComponent(url.slice(index + marker.length))]);
+    } catch (error) {
+      console.warn("No se pudo borrar la imagen anterior:", error);
+    }
+  }
+
   function renderStock() {
     if (role !== "administrador") {
       return notify("Acceso restringido.", "error");
     }
 
+    const editing = editingProductId
+      ? state.products.find(product => product.id === editingProductId)
+      : null;
+
+    if (editingProductId && !editing) editingProductId = null;
+
+    let colors = editing
+      ? editing.colors.filter(color => color && color.nombre && isHexColor(color.valor))
+          .map(color => ({ nombre: String(color.nombre), valor: String(color.valor).toLowerCase() }))
+      : [];
+
+    const categories = productCategories();
+    const currentImage = editing ? safeImageUrl(editing.imageUrl) : "";
+
     $("workspaceContent").innerHTML = `
       <div class="form-panel">
-        <h3>Crear producto</h3>
+        <h3>${editing ? "Editar producto" : "Crear producto"}</h3>
 
         <form id="productForm" class="form-grid">
           <div class="field">
-            <label for="pCode">Código único</label>
+            <label for="pCode">Referencia (código único)</label>
             <input id="pCode" maxlength="50" required>
           </div>
 
@@ -2006,37 +2114,65 @@ $("shareClosing").addEventListener("click", async () => {
             <input id="pName" maxlength="150" required>
           </div>
 
+          <div class="field">
+            <label for="pCategory">Categoría</label>
+            <select id="pCategory" required>
+              <option value="">Selecciona una categoría</option>
+              ${categories.map(category => `<option value="${escapeHTML(category)}">${escapeHTML(category)}</option>`).join("")}
+              <option value="__otra">Otra categoría…</option>
+            </select>
+          </div>
+
+          <div class="field" id="pCategoryOtherWrap" hidden>
+            <label for="pCategoryOther">Nueva categoría</label>
+            <input id="pCategoryOther" maxlength="30" placeholder="Ej. Protectores">
+          </div>
+
           <div class="field wide">
             <label for="pDescription">Descripción</label>
             <input id="pDescription" maxlength="220" required>
           </div>
 
-          <div class="field">
-            <label for="pPrice">
-              Valor unitario de salida / venta (COP)
-            </label>
-            <input id="pPrice" type="number" min="0"
-              step="1" required>
+          <div class="field wide">
+            <label for="pImage">Imagen del producto${editing ? " (déjala vacía para conservar la actual)" : ""}</label>
+            <input id="pImage" type="file" accept="image/png,image/jpeg,image/webp" ${editing ? "" : "required"}>
+            <small>PNG, JPG o WEBP de máximo 5 MB. Se verá mejor con fondo blanco o transparente.</small>
+            <img id="pImagePreview" class="image-preview" alt="Vista previa de la imagen"
+              ${currentImage ? `src="${escapeHTML(currentImage)}"` : "hidden"}>
           </div>
 
+          <div class="field wide">
+            <label for="pColorName">Colores disponibles</label>
+            <div class="color-adder">
+              <input id="pColorName" type="text" maxlength="30" placeholder="Nombre (ej. Negro)">
+              <input id="pColorValue" type="color" value="#111111" aria-label="Elegir el tono del color">
+              <button class="btn btn-ghost" type="button" id="pColorAdd">Agregar color</button>
+            </div>
+            <div id="pColorList" class="color-chips"></div>
+            <small>Si no agregas colores, el producto se muestra como "Único".</small>
+          </div>
+
+          <div class="field">
+            <label for="pPrice">Valor unitario de salida / venta (COP)</label>
+            <input id="pPrice" type="number" min="0" step="1" required>
+          </div>
+
+          ${editing ? "" : `
           <div class="field">
             <label for="pStock">Cantidad inicial</label>
-            <input id="pStock" type="number" min="0"
-              step="1" value="0" required>
-          </div>
+            <input id="pStock" type="number" min="0" step="1" value="0" required>
+          </div>`}
 
           <div class="field">
-            <label for="pReorder">
-              Solicitar pedido cuando el stock sea igual o inferior a
-            </label>
-            <input id="pReorder" type="number" min="0"
-              step="1" value="5" required>
+            <label for="pReorder">Solicitar pedido cuando el stock sea igual o inferior a</label>
+            <input id="pReorder" type="number" min="0" step="1" value="5" required>
           </div>
 
-          <div>
-            <button class="btn btn-primary" type="submit">
-              Crear producto
+          <div class="form-actions">
+            <button class="btn btn-primary" type="submit" id="productSubmit">
+              ${editing ? "Guardar cambios" : "Crear producto"}
             </button>
+            ${editing ? `<button class="btn btn-ghost" type="button" id="productCancel">Cancelar edición</button>` : ""}
           </div>
         </form>
       </div>
@@ -2050,58 +2186,214 @@ $("shareClosing").addEventListener("click", async () => {
       <div id="stockTable"></div>
     `;
 
-    $("productForm").addEventListener("submit", event => {
+    // Valores iniciales al editar (se asignan por propiedad, no por HTML).
+    if (editing) {
+      $("pCode").value = editing.code;
+      $("pName").value = editing.name;
+      $("pDescription").value = editing.description || "";
+      $("pPrice").value = editing.price;
+      $("pReorder").value = editing.reorderLevel ?? 5;
+
+      if (editing.category && !categories.includes(editing.category)) {
+        $("pCategory").value = "__otra";
+        $("pCategoryOtherWrap").hidden = false;
+        $("pCategoryOther").value = editing.category;
+      } else {
+        $("pCategory").value = editing.category || "";
+      }
+    }
+
+    const renderColors = () => {
+      $("pColorList").innerHTML = colors.map((color, index) => `
+        <span class="color-chip">
+          <i style="background:${escapeHTML(color.valor)}"></i>
+          ${escapeHTML(color.nombre)}
+          <button type="button" data-remove-color="${index}" aria-label="Quitar ${escapeHTML(color.nombre)}">&times;</button>
+        </span>
+      `).join("");
+
+      $("pColorList").querySelectorAll("[data-remove-color]").forEach(button => {
+        button.addEventListener("click", () => {
+          colors.splice(Number(button.dataset.removeColor), 1);
+          renderColors();
+        });
+      });
+    };
+
+    const addColor = () => {
+      const name = $("pColorName").value.trim().replace(/\s+/g, " ");
+      const value = $("pColorValue").value.toLowerCase();
+
+      if (!name) return notify("Escribe el nombre del color.", "error");
+      if (!isHexColor(value)) return notify("Elige un tono válido.", "error");
+      if (colors.length >= 8) return notify("Máximo 8 colores por producto.", "error");
+      if (colors.some(color => color.nombre.toLowerCase() === name.toLowerCase())) {
+        return notify("Ese color ya está agregado.", "error");
+      }
+
+      colors.push({ nombre: name, valor: value });
+      $("pColorName").value = "";
+      renderColors();
+      notify("");
+      $("pColorName").focus();
+    };
+
+    $("pColorAdd").addEventListener("click", addColor);
+    $("pColorName").addEventListener("keydown", event => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        addColor();
+      }
+    });
+    renderColors();
+
+    $("pCategory").addEventListener("change", () => {
+      const other = $("pCategory").value === "__otra";
+      $("pCategoryOtherWrap").hidden = !other;
+      $("pCategoryOther").required = other;
+      if (other) $("pCategoryOther").focus();
+    });
+
+    $("pImage").addEventListener("change", () => {
+      const file = $("pImage").files[0];
+      const preview = $("pImagePreview");
+
+      if (!file) {
+        preview.hidden = !currentImage;
+        if (currentImage) preview.src = currentImage;
+        return;
+      }
+
+      preview.src = URL.createObjectURL(file);
+      preview.hidden = false;
+    });
+
+    if ($("productCancel")) {
+      $("productCancel").addEventListener("click", () => {
+        editingProductId = null;
+        renderStock();
+      });
+    }
+
+    $("productForm").addEventListener("submit", async event => {
       event.preventDefault();
 
       if (role !== "administrador") {
         return notify("Acceso restringido.", "error");
       }
 
+      const submit = $("productSubmit");
       const code = $("pCode").value.trim().toUpperCase();
       const name = $("pName").value.trim();
       const description = $("pDescription").value.trim();
-            const price = Number($("pPrice").value);
-      const stock = Number($("pStock").value);
+      const price = Number($("pPrice").value);
       const reorderLevel = Number($("pReorder").value);
+      const stock = editing ? null : Number($("pStock").value);
+      const file = $("pImage").files[0] || null;
+
+      let category = $("pCategory").value;
+      if (category === "__otra") {
+        const typed = $("pCategoryOther").value.trim().replace(/\s+/g, " ");
+        // Si coincide con una categoría existente (sin importar mayúsculas), se reutiliza.
+        category = categories.find(item => item.toLowerCase() === typed.toLowerCase())
+          || (typed ? typed.charAt(0).toUpperCase() + typed.slice(1) : "");
+      }
 
       if (
-        !name ||
-        !code ||
-        !description ||
-        !Number.isFinite(price) ||
-        price < 0 ||
-        !Number.isInteger(stock) ||
-        stock < 0 ||
-        !Number.isInteger(reorderLevel) ||
-        reorderLevel < 0
+        !name || !code || !description || !category ||
+        !Number.isFinite(price) || price < 0 ||
+        !Number.isInteger(reorderLevel) || reorderLevel < 0 ||
+        (!editing && (!Number.isInteger(stock) || stock < 0))
       ) {
         return notify("Revisa los datos del producto.", "error");
       }
 
-      if (state.products.some(product =>
-        product.code.toLowerCase() === code.toLowerCase()
-      )) {
-        return notify(
-          "Ya existe un producto con ese código.",
-          "error"
-        );
+      if (!editing && !file) {
+        return notify("Selecciona la imagen del producto.", "error");
       }
 
-      state.products.push({
-        id: crypto.randomUUID(),
-        name,
-        description,
-        code,
-        price,
-        stock,
-        reorderLevel
-      });
+      if (state.products.some(product =>
+        product.id !== editingProductId &&
+        product.code.toLowerCase() === code.toLowerCase()
+      )) {
+        return notify("Ya existe un producto con esa referencia.", "error");
+      }
 
-      if (!saveState()) return;
+      const originalText = submit.textContent;
+      submit.disabled = true;
+      submit.textContent = file ? "Subiendo imagen..." : "Guardando...";
 
-      notify("Producto creado correctamente.", "success");
-      renderDashboard();
-      renderStock();
+      let newImageUrl = null;
+
+      try {
+        if (file) newImageUrl = await uploadProductImage(file);
+
+        submit.textContent = "Guardando...";
+
+        const payload = {
+          codigo: code,
+          nombre: name,
+          descripcion: description,
+          precio: price,
+          nivel_reorden: reorderLevel,
+          categoria: category,
+          colores: colors.length ? colors : [{ nombre: "Único", valor: "#9aabcc" }]
+        };
+
+        if (newImageUrl) payload.imagen_url = newImageUrl;
+
+        let result;
+
+        if (editing) {
+          result = await db.from("productos").update(payload).eq("id", editing.id);
+        } else {
+          result = await db.from("productos").insert({
+            ...payload,
+            id: crypto.randomUUID(),
+            stock,
+            activo: true
+          });
+        }
+
+        if (result.error) throw result.error;
+
+        if (editing && newImageUrl && currentImage) {
+          removeProductImage(currentImage);
+        }
+      } catch (error) {
+        console.error("Error guardando producto:", error);
+
+        // Si no se pudo guardar el producto, se borra la imagen que sí se subió.
+        if (newImageUrl) removeProductImage(newImageUrl);
+
+        let message = error.message || "No se pudo guardar el producto.";
+
+        if (error.code === "42703" || /column .* does not exist|schema cache/i.test(message)) {
+          message = "Faltan columnas en Supabase. Ejecuta el script SQL de productos y vuelve a intentarlo.";
+        } else if (error.code === "23505") {
+          message = "Ya existe un producto con esa referencia.";
+        } else if (error.code === "42501" || /row-level security/i.test(message)) {
+          message = "Supabase no permite esta acción con tu cuenta. Solo los administradores pueden crear o editar productos.";
+        }
+
+        notify(message, "error");
+        submit.disabled = false;
+        submit.textContent = originalText;
+        return;
+      }
+
+      const wasEditing = Boolean(editing);
+      editingProductId = null;
+
+      try {
+        await loadSupabaseState();
+        renderDashboard();
+        renderStock();
+        notify(wasEditing ? "Producto actualizado." : "Producto creado. Ya aparece en la tienda.", "success");
+      } catch (error) {
+        console.error(error);
+        notify("El producto se guardó, pero no se pudo refrescar la pantalla. Recarga la página.", "error");
+      }
     });
 
     renderStockTable();
@@ -2132,8 +2424,14 @@ $("shareClosing").addEventListener("click", async () => {
 
       return `
         <tr>
+          <td>${
+            safeImageUrl(product.imageUrl)
+              ? `<img class="thumb" src="${escapeHTML(safeImageUrl(product.imageUrl))}" alt="" loading="lazy">`
+              : "—"
+          }</td>
           <td>${escapeHTML(product.code)}</td>
           <td>${escapeHTML(product.description || product.name)}</td>
+          <td>${escapeHTML(product.category || "Sin categoría")}</td>
           <td>${product.stock}</td>
           <td>${money(product.price)}</td>
           <td>${money(salesTotal)}</td>
@@ -2159,8 +2457,10 @@ $("shareClosing").addEventListener("click", async () => {
 
     $("stockTable").innerHTML = table(
       [
-        "Código de producto",
+        "Imagen",
+        "Referencia",
         "Descripción de producto",
+        "Categoría",
         "Cantidad",
         "Valor unitario de salida",
         "Total vendido",
@@ -2193,70 +2493,12 @@ $("shareClosing").addEventListener("click", async () => {
       return notify("Acceso restringido.", "error");
     }
 
-    const product = state.products.find(item => item.id === id);
-    if (!product) return;
+    if (!state.products.some(item => item.id === id)) return;
 
-    const code = prompt("Código del producto:", product.code);
-    if (code === null) return;
-
-    const name = prompt("Nombre del producto:", product.name);
-    if (name === null) return;
-
-    const description = prompt(
-      "Descripción del producto:",
-      product.description || product.name
-    );
-    if (description === null) return;
-
-    const priceText = prompt(
-      "Valor unitario de salida / venta en COP:",
-      String(product.price)
-    );
-    if (priceText === null) return;
-
-    const reorderText = prompt(
-      "Solicitar pedido cuando el stock sea igual o inferior a:",
-      String(product.reorderLevel ?? 5)
-    );
-    if (reorderText === null) return;
-
-    const price = Number(priceText);
-    const reorderLevel = Number(reorderText);
-    const normalizedCode = code.trim().toUpperCase();
-
-    if (
-      !normalizedCode ||
-      !name.trim() ||
-      !description.trim() ||
-      !Number.isFinite(price) ||
-      price < 0 ||
-      !Number.isInteger(reorderLevel) ||
-      reorderLevel < 0
-    ) {
-      return notify("Datos inválidos.", "error");
-    }
-
-    if (state.products.some(item =>
-      item.id !== id &&
-      item.code.toLowerCase() === normalizedCode.toLowerCase()
-    )) {
-      return notify(
-        "Ese código ya pertenece a otro producto.",
-        "error"
-      );
-    }
-
-    product.code = normalizedCode;
-    product.name = name.trim();
-    product.description = description.trim();
-    product.price = price;
-    product.reorderLevel = reorderLevel;
-
-    if (!saveState()) return;
-
-    renderDashboard();
+    editingProductId = id;
     renderStock();
-    notify("Producto actualizado.", "success");
+    notify("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function deleteProduct(id) {
@@ -2321,10 +2563,25 @@ $("shareClosing").addEventListener("click", async () => {
       `;
     }).join("");
 
+    const orphanSales = state.sales.filter(
+      sale => !state.employees.some(e => e.id === sale.employeeId)
+    );
+
+    const orphanRow = orphanSales.length
+      ? `
+        <tr>
+          <td>Empleados eliminados</td>
+          <td>${orphanSales.length}</td>
+          <td>${money(orphanSales.reduce((sum, sale) => sum + sale.total, 0))}</td>
+          <td>${money(orphanSales.reduce((sum, sale) => sum + sale.total, 0) / orphanSales.length)}</td>
+        </tr>
+      `
+      : "";
+
     const detailRows = state.sales.slice().reverse().map(sale => `
       <tr>
         <td>${escapeHTML(sale.date)}</td>
-        <td>${escapeHTML(employeeName(sale.employeeId))}</td>
+        <td>${escapeHTML(saleEmployeeName(sale))}</td>
         <td>${escapeHTML(sale.productCode || "—")}</td>
         <td>${escapeHTML(sale.productName)}</td>
         <td>${sale.qty}</td>
@@ -2354,7 +2611,7 @@ $("shareClosing").addEventListener("click", async () => {
         </div>
         <div class="stat">
           <span>Empleados con ventas</span>
-          <strong>${Object.keys(counts).length}</strong>
+          <strong>${state.employees.filter(e => counts[e.id]).length}</strong>
           <small>Con al menos una venta</small>
         </div>
       </div>
@@ -2363,7 +2620,7 @@ $("shareClosing").addEventListener("click", async () => {
 
       ${table(
         ["Empleado", "N.º ventas", "Total vendido", "Promedio por venta"],
-        summaryRows,
+        summaryRows + orphanRow,
         "Todavía no hay ventas registradas."
       )}
 
@@ -2432,7 +2689,7 @@ $("shareClosing").addEventListener("click", async () => {
     const rows = filtered.slice().reverse().map(sale => `
       <tr>
         <td>${escapeHTML(sale.date)}</td>
-        <td>${escapeHTML(employeeName(sale.employeeId))}</td>
+        <td>${escapeHTML(saleEmployeeName(sale))}</td>
         <td>${escapeHTML(sale.productCode || "—")}</td>
         <td>${escapeHTML(sale.productName)}</td>
         <td>${sale.qty}</td>
@@ -2745,7 +3002,7 @@ form.addEventListener("submit", async event => {
 
         if (!confirm(
           `¿Eliminar definitivamente a ${nombre} (${codigo})?\n\n` +
-          `Se borrará su cuenta de acceso. Esta acción no se puede deshacer.`
+          `Se borrará su cuenta de acceso. Sus ventas y registros se conservan. Esta acción no se puede deshacer.`
         )) {
           return;
         }
@@ -2909,6 +3166,17 @@ form.addEventListener("submit", async event => {
 
       notify("Registro guardado.", "success");
     });
+  }
+
+  // Nombre del vendedor de una venta. Si el empleado fue eliminado,
+  // se muestra el nombre que quedó guardado junto a la venta.
+  function saleEmployeeName(sale) {
+    if (sale.employeeId && state.employees.some(e => e.id === sale.employeeId)) {
+      return employeeName(sale.employeeId);
+    }
+    if (sale.employeeLabel) return `${sale.employeeLabel} (eliminado)`;
+    if (!sale.employeeId) return "Empleado eliminado";
+    return employeeName(sale.employeeId);
   }
 
   function employeeName(id) {
