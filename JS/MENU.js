@@ -44,7 +44,7 @@
   ];
 
   const LOCAL_NAME = "Phone Planet";
-  const LOCAL_NIT = "PENDIENTE POR CONFIGURAR";
+  const LOCAL_NIT = "1021662991-1";
   let state = emptyState();
   let role = "empleado";
   let activeModule = null;
